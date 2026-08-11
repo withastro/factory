@@ -1,0 +1,28 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "astro-review",
+	"compatibility_date": "2026-08-10",
+	"compatibility_flags": ["nodejs_compat"],
+	"ai": {
+		"binding": "AI"
+	},
+	"workflows": [
+		{
+			"name": "astro-review",
+			"binding": "REVIEW_WORKFLOW",
+			"class_name": "ReviewWorkflow"
+		}
+	],
+	"observability": {
+		"enabled": true,
+		"traces": {
+			"enabled": true
+		}
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["FluePullRequestReviewerAgent"]
+		}
+	]
+}

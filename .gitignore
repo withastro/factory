@@ -141,3 +141,13 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Cloudflare and Flue generated files
+.dev.vars*
+!.dev.vars.example
+.wrangler/
+.flue-vite/
+.flue-vite.wrangler.jsonc
+worker-configuration.d.ts
+
+.idea/
