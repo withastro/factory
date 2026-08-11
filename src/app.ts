@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { githubChannel } from './channels/github.ts';
 import type { AppHonoEnv } from './env.ts';
 
-instrument(createCloudflareTracing({ content: false }));
+instrument(createCloudflareTracing());
 
 const app = new Hono<AppHonoEnv>();
 
