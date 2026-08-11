@@ -10,8 +10,10 @@ export type InstallationClient = Octokit;
 
 export function credentialsFromWorkerEnv(env: WorkerEnv): GitHubCredentials {
 	return {
-		appId: env.GITHUB_APP_ID,
-		privateKey: normalizePrivateKey(env.GITHUB_APP_PRIVATE_KEY),
+		appId: requiredValue('GITHUB_APP_ID', env.GITHUB_APP_ID),
+		privateKey: normalizePrivateKey(
+			requiredValue('GITHUB_APP_PRIVATE_KEY', env.GITHUB_APP_PRIVATE_KEY),
+		),
 	};
 }
 
@@ -31,7 +33,10 @@ export async function createInstallationClient(
 }
 
 export function requiredProcessEnv(name: string): string {
-	const value = process.env[name];
+	return requiredValue(name, process.env[name]);
+}
+
+function requiredValue(name: string, value: string | undefined): string {
 	if (!value) {
 		throw new Error(`${name} is required.`);
 	}

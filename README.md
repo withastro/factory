@@ -68,9 +68,18 @@ Create a GitHub App after the initial Worker deployment with these settings:
 - Repository permission `Pull requests`: Read and write
 - Subscribe to the `Pull request` event
 
-Generate a private key and note the App ID. In the Cloudflare dashboard, open the
-Worker's **Settings > Variables & Secrets** and add these as encrypted runtime
-secrets:
+Generate a private key and note the App ID. If the downloaded key begins with
+`-----BEGIN RSA PRIVATE KEY-----`, convert it from PKCS#1 to unencrypted PKCS#8:
+
+```sh
+openssl pkcs8 -topk8 -nocrypt \
+  -in github-app-private-key.pem \
+  -out github-app-private-key.pkcs8.pem
+```
+
+The converted file must begin with `-----BEGIN PRIVATE KEY-----`. In the
+Cloudflare dashboard, open the Worker's **Settings > Variables & Secrets** and
+add these as encrypted runtime secrets:
 
 - `GITHUB_APP_ID`
 - `GITHUB_APP_PRIVATE_KEY`
