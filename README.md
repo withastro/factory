@@ -30,9 +30,36 @@ deduplication.
 - A Cloudflare account with Workers AI and Workflows access
 - A GitHub App
 
+## Deploy with Workers Builds
+
+Connect this repository before creating the GitHub App so its webhook can use the
+deployed Worker URL:
+
+1. In the Cloudflare dashboard, open **Workers & Pages** and select
+   **Create application**.
+2. Select **Get started** next to **Import a repository**, connect the GitHub
+   account, and select this repository.
+3. Configure the project with these settings:
+
+| Setting | Value |
+| --- | --- |
+| Worker name | `astro-review` |
+| Production branch | `main` |
+| Root directory | Leave blank (repository root) |
+| Build command | `pnpm run build` |
+| Deploy command | `pnpm exec wrangler deploy` |
+| Non-production branch deploy command | `pnpm exec wrangler versions upload` |
+
+The Worker name must match the `name` in `wrangler.jsonc`. Workers Builds installs
+dependencies and creates its deployment API token automatically. Select **Save
+and Deploy**, then record the generated `workers.dev` URL. Subsequent pushes to
+`main` build and deploy automatically; other branches upload preview versions.
+
+The health endpoint is available at `https://<worker-host>/health`.
+
 ## GitHub App
 
-Create a GitHub App with these settings:
+Create a GitHub App after the initial Worker deployment with these settings:
 
 - Webhook URL: `https://<worker-host>/channels/github/webhook`
 - Webhook content type: `application/json`
@@ -41,34 +68,31 @@ Create a GitHub App with these settings:
 - Repository permission `Pull requests`: Read and write
 - Subscribe to the `Pull request` event
 
-Generate a private key and note the App ID. Install the app only on public
-repositories that should be reviewed.
+Generate a private key and note the App ID. In the Cloudflare dashboard, open the
+Worker's **Settings > Variables & Secrets** and add these as encrypted runtime
+secrets:
 
-## Deploy
+- `GITHUB_APP_ID`
+- `GITHUB_APP_PRIVATE_KEY`
+- `GITHUB_WEBHOOK_SECRET`
 
-Install dependencies and authenticate Wrangler:
+Build variables are not available to the running Worker, so do not add these under
+Workers Builds settings. Install the GitHub App only on public repositories that
+should be reviewed.
+
+### Manual deployment
+
+If Workers Builds is not used, install dependencies, authenticate Wrangler, add
+the same secrets, and deploy from the repository root:
 
 ```sh
 pnpm install
 pnpm exec wrangler login
-```
-
-Store the GitHub App credentials as encrypted Worker secrets:
-
-```sh
 pnpm exec wrangler secret put GITHUB_APP_ID
 pnpm exec wrangler secret put GITHUB_APP_PRIVATE_KEY
 pnpm exec wrangler secret put GITHUB_WEBHOOK_SECRET
-```
-
-Deploy the Worker:
-
-```sh
 pnpm run deploy
 ```
-
-Set the deployed `/channels/github/webhook` URL on the GitHub App. The health
-endpoint is available at `/health`.
 
 For local development, copy the names and value format from `.dev.vars.example`
 into `.dev.vars`, then run:
