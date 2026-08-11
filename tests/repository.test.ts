@@ -11,6 +11,8 @@ trigger:
   label: astro-review
 review:
   skill: ${SKILL_DIRECTORY}
+  severity: [blocker, advisory]
+  areas: [correctness, tests]
 `;
 const SKILL = `---
 name: astro-review
@@ -92,6 +94,8 @@ describe('review setup', () => {
 				baseSha: BASE_SHA,
 				headSha: HEAD_SHA,
 				body: '',
+				severities: ['blocker', 'advisory'],
+				areas: ['correctness', 'tests'],
 				skill: { name: 'astro-review' },
 			},
 		});

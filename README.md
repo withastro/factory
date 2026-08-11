@@ -85,6 +85,14 @@ add these as encrypted runtime secrets:
 - `GITHUB_APP_PRIVATE_KEY`
 - `GITHUB_WEBHOOK_SECRET`
 
+Prefer uploading the private key directly from the file to preserve its PEM
+formatting and deploy the resulting secret version automatically:
+
+```sh
+pnpm exec wrangler secret put GITHUB_APP_PRIVATE_KEY \
+  < github-app-private-key.pkcs8.pem
+```
+
 Build variables are not available to the running Worker, so do not add these under
 Workers Builds settings. Install the GitHub App only on public repositories that
 should be reviewed.
@@ -123,6 +131,18 @@ trigger:
   label: astro-review
 review:
   skill: .agents/skills/astro-review
+  severity: [critical, high, medium, low]
+  areas:
+    - design
+    - correctness
+    - security
+    - runtime
+    - completeness
+    - error-handling
+    - tests
+    - maintainability
+    - documentation
+    - changeset
 ```
 
 Create the configured skill at `.agents/skills/astro-review/SKILL.md`:
@@ -141,7 +161,11 @@ performance issues introduced by the pull request.
 
 Skill directories must match `.agents/skills/<skill-name>`. A skill may contain
 at most 32 UTF-8 text files and 256 KiB in total. Its frontmatter `name` must
-match the directory name.
+match the directory name. `review.severity` and `review.areas` define the only
+classification values the agent may submit. Both must be non-empty arrays of
+unique names; omitting them uses the values shown above. The configuration is
+the allowed vocabulary, while the skill defines how the agent should assess,
+weight, and map findings to those values.
 
 Configuration and skill files are always read from the pull request's base SHA,
 not its unreviewed head. Changes to either file in a pull request therefore take
@@ -155,7 +179,9 @@ another review, remove and re-add the label.
 
 The app publishes at most 20 inline comments per review. Duplicate locations,
 locations absent from GitHub's available patch, and excess findings are retained
-in the review body instead of being discarded.
+in the review body instead of being discarded. The application renders each
+finding as `` `[severity][area]`: message ``. Skills control the finding content
+and classification guidance, but cannot override this GitHub presentation format.
 
 ## Development
 

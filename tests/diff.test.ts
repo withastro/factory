@@ -4,6 +4,7 @@ import {
 	commentableLines,
 	formatReviewBody,
 	prepareReview,
+	REVIEW_DISCLOSURE,
 } from '../src/github/diff.ts';
 
 const patch = `diff --git a/src/example.ts b/src/example.ts
@@ -21,6 +22,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
 		line: 21,
 		side: 'RIGHT',
 		severity: 'high',
+		area: 'correctness',
 		title: 'Incorrect behavior',
 		body: 'This change returns the wrong value.',
 		...overrides,
@@ -69,6 +71,30 @@ describe('GitHub diff locations', () => {
 		);
 		expect(body).toContain('This change returns the wrong value.');
 		expect(body).toContain('`src/other.ts:7 LEFT`');
+		expect(body).toContain('`[high][correctness]`: Incorrect behavior');
 		expect(body).toContain('<!-- marker -->');
+	});
+
+	it('ends every review with the mandatory italic LLM disclosure', () => {
+		const body = formatReviewBody(
+			{ summary: 'No issues found.', findings: [] },
+			[],
+			'<!-- marker -->',
+		);
+
+		expect(body.endsWith(`*${REVIEW_DISCLOSURE}*`)).toBe(true);
+	});
+
+	it('contains model-authored Markdown that could hide the disclosure', () => {
+		const item = finding({ title: '<!-- hidden', body: '```ts\nconst broken = true;' });
+		const body = formatReviewBody(
+			{ summary: '<!-- unclosed comment', findings: [item] },
+			[item],
+			'<!-- marker -->',
+		);
+
+		expect(body).toContain('&lt;!-- unclosed comment');
+		expect(body).toContain('\\```ts');
+		expect(body.endsWith(`*${REVIEW_DISCLOSURE}*`)).toBe(true);
 	});
 });

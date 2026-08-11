@@ -10,6 +10,9 @@ export interface PreparedReview {
 	unanchored: Finding[];
 }
 
+export const REVIEW_DISCLOSURE =
+	'This review was made by an LLM. The analysis may be wrong, and reports might be incorrect.';
+
 export function prepareReview(
 	result: ReviewResult,
 	files: ChangedFile[],
@@ -84,7 +87,7 @@ export function formatReviewBody(
 	unanchored: Finding[],
 	marker: string,
 ): string {
-	const sections = [result.summary.trim()];
+	const sections = [containModelMarkdown(result.summary.trim())];
 	if (unanchored.length > 0) {
 		sections.push(
 			[
@@ -92,20 +95,33 @@ export function formatReviewBody(
 				'',
 				...unanchored.slice(0, 30).map((finding) =>
 					[
-						`#### ${finding.severity}: ${finding.title}`,
+						formatFindingLead(finding),
 						'',
-						`\`${finding.path}:${finding.line} ${finding.side}\``,
+						`\`${containModelMarkdown(finding.path)}:${finding.line} ${finding.side}\``,
 						'',
-						finding.body.slice(0, 1_000),
+						containModelMarkdown(finding.body.slice(0, 1_000)),
 					].join('\n'),
 				),
 			].join('\n'),
 		);
 	}
-	sections.push(marker);
+	sections.push(marker, `*${REVIEW_DISCLOSURE}*`);
 	return sections.join('\n\n');
 }
 
 export function formatInlineFinding(finding: Finding): string {
-	return `**${finding.severity}: ${finding.title}**\n\n${finding.body}`;
+	return `${formatFindingLead(finding)}\n\n${containModelMarkdown(finding.body)}`;
+}
+
+function formatFindingLead(finding: Finding): string {
+	return `\`[${finding.severity}][${finding.area}]\`: ${containModelMarkdown(finding.title)}`;
+}
+
+function containModelMarkdown(value: string): string {
+	return value
+		.replaceAll('<', '&lt;')
+		.replace(
+			/^([ \t]{0,3})(`{3,}|~{3,})/gm,
+			(_match, indentation: string, fence: string) => `${indentation}\\${fence}`,
+		);
 }

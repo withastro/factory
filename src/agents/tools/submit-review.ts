@@ -1,12 +1,15 @@
 import { useTool } from '@flue/runtime';
-import { reviewResultSchema, type ReviewResult } from '../../contracts/review.ts';
+import type { ReviewResult, ReviewResultSchema } from '../../contracts/review.ts';
 
-export function useSubmitReviewTool(writeReview: (review: ReviewResult) => void): void {
+export function useSubmitReviewTool(
+	writeReview: (review: ReviewResult) => void,
+	schema: ReviewResultSchema,
+): void {
 	useTool({
 		name: 'submit_review_findings',
 		description:
-			'Submit the final structured review. Call exactly once after completing the review.',
-		input: reviewResultSchema,
+			'Submit the final structured review fields without GitHub comment formatting. Call exactly once after completing the review.',
+		input: schema,
 		run({ data }) {
 			writeReview(data);
 			return {

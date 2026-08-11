@@ -69,7 +69,20 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 		const result = await step.do(
 			'read structured review result',
 			{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: '35 minutes' },
-			async () => extractReviewResult((await agent.read(receipt)).data),
+			async () => {
+				const reply = await agent.read(receipt, {
+					onEvent(chunk) {
+						if (chunk.type !== 'message-delta') return;
+						const stream = chunk.kind === 'reasoning' ? 'thinking' : 'transcript';
+						console.log(`[astro-review:${stream}]`, chunk.delta);
+					},
+				});
+				return extractReviewResult(
+					reply.data,
+					setup.agentInput.severities,
+					setup.agentInput.areas,
+				);
+			},
 		);
 
 		return step.do(

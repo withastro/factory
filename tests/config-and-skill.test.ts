@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseRepositoryConfig, validateSkillDirectory } from '../src/github/config.ts';
+import {
+	DEFAULT_AREAS,
+	DEFAULT_SEVERITIES,
+	parseRepositoryConfig,
+	validateSkillDirectory,
+} from '../src/github/config.ts';
 import {
 	assertSkillFileBudget,
 	createSkillSnapshot,
@@ -19,8 +24,47 @@ review:
 		).toEqual({
 			version: 1,
 			trigger: { label: 'astro-review' },
-			review: { skill: '.agents/skills/astro-review' },
+			review: {
+				skill: '.agents/skills/astro-review',
+				severity: [...DEFAULT_SEVERITIES],
+				areas: [...DEFAULT_AREAS],
+			},
 		});
+	});
+
+	it('accepts project-defined severity and area vocabularies', () => {
+		expect(
+			parseRepositoryConfig(`
+version: 1
+trigger:
+  label: astro-review
+review:
+  skill: .agents/skills/astro-review
+  severity: [blocker, advisory]
+  areas: [correctness, error-handling]
+`),
+		).toMatchObject({
+			review: {
+				severity: ['blocker', 'advisory'],
+				areas: ['correctness', 'error-handling'],
+			},
+		});
+	});
+
+	it('rejects empty, duplicate, or markup-bearing classifications', () => {
+		for (const classification of ['[]', '[high, HIGH]', '["**security**"]']) {
+			expect(() =>
+				parseRepositoryConfig(`
+version: 1
+trigger:
+  label: astro-review
+review:
+  skill: .agents/skills/astro-review
+  severity: ${classification}
+  areas: [correctness]
+`),
+			).toThrow();
+		}
 	});
 
 	it.each([

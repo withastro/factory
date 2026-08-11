@@ -33,28 +33,52 @@ export const reviewAgentInputSchema = v.object({
 	title: v.string(),
 	body: v.string(),
 	triggerLabel: nonEmptyString,
+	severities: v.pipe(v.array(nonEmptyString), v.minLength(1), v.maxLength(50)),
+	areas: v.pipe(v.array(nonEmptyString), v.minLength(1), v.maxLength(50)),
 	skill: skillSnapshotSchema,
 });
 
-export const findingSchema = v.object({
+const findingShape = {
 	path: nonEmptyString,
 	line: v.pipe(v.number(), v.integer(), v.minValue(1)),
 	side: v.picklist(['LEFT', 'RIGHT']),
-	severity: v.picklist(['critical', 'high', 'medium', 'low']),
 	title: v.pipe(nonEmptyString, v.maxLength(160)),
 	body: v.pipe(nonEmptyString, v.maxLength(4_000)),
-});
+};
 
-export const reviewResultSchema = v.object({
-	summary: v.pipe(nonEmptyString, v.maxLength(8_000)),
-	findings: v.pipe(v.array(findingSchema), v.maxLength(50)),
-});
+export function createReviewResultSchema(
+	severities: readonly string[],
+	areas: readonly string[],
+) {
+	return v.object({
+		summary: v.pipe(nonEmptyString, v.maxLength(8_000)),
+		findings: v.pipe(
+			v.array(
+				v.object({
+					...findingShape,
+					severity: configuredValueSchema('severity', severities),
+					area: configuredValueSchema('area', areas),
+				}),
+			),
+			v.maxLength(50),
+		),
+	});
+}
+
+function configuredValueSchema(name: string, values: readonly string[]) {
+	const [first, ...rest] = values;
+	if (first === undefined) {
+		throw new Error(`At least one review ${name} must be configured.`);
+	}
+	return v.picklist([first, ...rest]);
+}
 
 export type ReviewWorkflowParams = v.InferOutput<typeof reviewWorkflowParamsSchema>;
 export type SkillSnapshot = v.InferOutput<typeof skillSnapshotSchema>;
 export type ReviewAgentInput = v.InferOutput<typeof reviewAgentInputSchema>;
-export type Finding = v.InferOutput<typeof findingSchema>;
-export type ReviewResult = v.InferOutput<typeof reviewResultSchema>;
+export type ReviewResultSchema = ReturnType<typeof createReviewResultSchema>;
+export type ReviewResult = v.InferOutput<ReviewResultSchema>;
+export type Finding = ReviewResult['findings'][number];
 
 export type ReviewWorkflowOutcome =
 	| { outcome: 'ignored'; reason: string }

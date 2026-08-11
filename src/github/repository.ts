@@ -86,6 +86,8 @@ export async function loadReviewSetup(
 			title: pull.data.title,
 			body: pull.data.body ?? '',
 			triggerLabel: config.trigger.label,
+			severities: config.review.severity,
+			areas: config.review.areas,
 			skill,
 		},
 	};

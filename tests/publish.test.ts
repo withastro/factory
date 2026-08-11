@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ReviewResult } from '../src/contracts/review.ts';
 import type { InstallationClient } from '../src/github/client.ts';
-import { reviewMarker } from '../src/github/diff.ts';
+import { REVIEW_DISCLOSURE, reviewMarker } from '../src/github/diff.ts';
 import { publishReview, type PublishReviewInput } from '../src/github/publish.ts';
 
 const input: PublishReviewInput = {
@@ -20,6 +20,7 @@ const result: ReviewResult = {
 			line: 2,
 			side: 'RIGHT',
 			severity: 'high',
+			area: 'correctness',
 			title: 'Wrong return value',
 			body: 'Return the computed result instead.',
 		},
@@ -85,11 +86,15 @@ describe('review publication', () => {
 		expect(createReview).toHaveBeenCalledWith(
 			expect.objectContaining({
 				commit_id: input.headSha,
+				body: expect.stringContaining(`*${REVIEW_DISCLOSURE}*`),
 				comments: [
 					expect.objectContaining({
 						path: 'src/example.ts',
 						line: 2,
 						side: 'RIGHT',
+						body: expect.stringContaining(
+							'`[high][correctness]`: Wrong return value',
+						),
 					}),
 				],
 			}),
