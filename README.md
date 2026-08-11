@@ -11,7 +11,8 @@ repositories are acknowledged but ignored.
 ## How it works
 
 1. GitHub sends a signed `pull_request.labeled` webhook.
-2. A Cloudflare Workflow loads `.github/astro-review.yml` or
+2. A Cloudflare Workflow creates an `in_progress` GitHub Check Run, then loads
+   `.github/astro-review.yml` or
    `.github/astro-review.yaml` and the configured skill from the pull request's
    immutable base SHA.
 3. A Flue agent reviews the change with read-only GitHub tools and
@@ -19,6 +20,8 @@ repositories are acknowledged but ignored.
 4. The Workflow validates every proposed inline location against GitHub's diff,
    verifies that the head SHA and trigger label are unchanged, and publishes a
    `COMMENT` review.
+5. The Check Run is completed with a `success` conclusion. It currently reports
+   Workflow activity only; findings and Workflow errors do not fail the check.
 
 The model has no GitHub credentials or write tools. Only application code can
 publish a review. A GitHub delivery ID is used for Workflow and publication
@@ -66,6 +69,7 @@ Create a GitHub App after the initial Worker deployment with these settings:
 - Webhook content type: `application/json`
 - Webhook secret: a new random secret
 - Repository permission `Contents`: Read-only
+- Repository permission `Checks`: Read and write
 - Repository permission `Pull requests`: Read and write
 - Subscribe to the `Pull request` event
 

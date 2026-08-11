@@ -13,6 +13,11 @@ import {
 } from './contracts/review.ts';
 import type { WorkerEnv } from './env.ts';
 import {
+	completeReviewCheck,
+	startReviewCheck,
+	type ReviewCheckInput,
+} from './github/checks.ts';
+import {
 	createInstallationClient,
 	credentialsFromWorkerEnv,
 } from './github/client.ts';
@@ -27,6 +32,49 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 	): Promise<ReviewWorkflowOutcome> {
 		const trigger = v.parse(reviewWorkflowParamsSchema, event.payload);
 		const credentials = credentialsFromWorkerEnv(this.env);
+		const checkInput: ReviewCheckInput = {
+			owner: trigger.owner,
+			repo: trigger.repo,
+			pullNumber: trigger.pullNumber,
+			headSha: trigger.headSha,
+			deliveryId: trigger.deliveryId,
+		};
+		const completeCheck = async (checkRunId: number) => {
+			const client = await createInstallationClient(credentials, trigger.installationId);
+			await completeReviewCheck(client, checkInput, checkRunId);
+		};
+		const checkRunId = await step.do(
+			'start GitHub check run',
+			{
+				retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+				timeout: '5 minutes',
+			},
+			async () => {
+				const client = await createInstallationClient(credentials, trigger.installationId);
+				return startReviewCheck(client, checkInput);
+			},
+			{
+				rollback: async ({ output }) => {
+					if (output !== undefined) await completeCheck(output);
+				},
+				rollbackConfig: {
+					retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+					timeout: '5 minutes',
+				},
+			},
+		);
+		const finishCheck = () =>
+			step.do(
+				'complete GitHub check run',
+				{
+					retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+					timeout: '5 minutes',
+				},
+				async () => {
+					await completeCheck(checkRunId);
+					return checkRunId;
+				},
+			);
 		const setup = await step.do(
 			'load repository configuration and review skill',
 			{
@@ -39,7 +87,10 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 			},
 		);
 
-		if (setup.outcome !== 'ready') return setup;
+		if (setup.outcome !== 'ready') {
+			await finishCheck();
+			return setup;
+		}
 
 		const agent = init(PullRequestReviewer, {
 			id: [
@@ -79,7 +130,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 			},
 		);
 
-		return step.do(
+		const outcome = await step.do(
 			'publish GitHub review',
 			{
 				retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
@@ -101,5 +152,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 				);
 			},
 		);
+		await finishCheck();
+		return outcome;
 	}
 }
