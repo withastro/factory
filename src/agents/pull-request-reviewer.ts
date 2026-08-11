@@ -18,7 +18,7 @@ import { useGitHubReviewTools } from './tools/github-read.ts';
 import { useSubmitReviewTool } from './tools/submit-review.ts';
 
 export function PullRequestReviewer() {
-	useModel('cloudflare/@cf/moonshotai/kimi-k2.6', { thinkingLevel: 'high' });
+	useModel('cloudflare/@cf/moonshotai/kimi-k2.7-code', { thinkingLevel: 'high' });
 	const input = useInitialData<ReviewAgentInput>();
 
 	useSandbox(

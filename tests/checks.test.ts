@@ -15,14 +15,15 @@ const input: ReviewCheckInput = {
 	deliveryId: 'delivery-id',
 };
 
-function createClient(existingId?: number) {
+interface ExistingCheck {
+	id: number;
+	external_id: string;
+	status: string;
+}
+
+function createClient(existingChecks: ExistingCheck[] = []) {
 	const listForRef = vi.fn(async () => ({
-		data: {
-			check_runs:
-				existingId === undefined
-					? []
-					: [{ id: existingId, external_id: input.deliveryId }],
-		},
+		data: { check_runs: existingChecks },
 	}));
 	const create = vi.fn(async () => ({ data: { id: 42 } }));
 	const update = vi.fn(async () => ({ data: { id: 42 } }));
@@ -49,10 +50,21 @@ describe('GitHub review checks', () => {
 	});
 
 	it('reuses a check already created for the delivery', async () => {
-		const { client, create } = createClient(7);
+		const { client, create } = createClient([
+			{ id: 7, external_id: input.deliveryId, status: 'in_progress' },
+		]);
 
 		await expect(startReviewCheck(client, input)).resolves.toBe(7);
 		expect(create).not.toHaveBeenCalled();
+	});
+
+	it('creates a new check when a previous run for the delivery completed', async () => {
+		const { client, create } = createClient([
+			{ id: 7, external_id: input.deliveryId, status: 'completed' },
+		]);
+
+		await expect(startReviewCheck(client, input)).resolves.toBe(42);
+		expect(create).toHaveBeenCalledOnce();
 	});
 
 	it('always completes the check successfully', async () => {
@@ -66,6 +78,27 @@ describe('GitHub review checks', () => {
 				conclusion: 'success',
 				external_id: input.deliveryId,
 			}),
+		);
+	});
+
+	it('reconciles every duplicate check when the created id is unavailable', async () => {
+		const { client, update } = createClient([
+			{ id: 7, external_id: input.deliveryId, status: 'in_progress' },
+			{ id: 8, external_id: input.deliveryId, status: 'in_progress' },
+			{ id: 9, external_id: 'another-delivery', status: 'in_progress' },
+		]);
+
+		await completeReviewCheck(client, input);
+		expect(update).toHaveBeenCalledTimes(2);
+		expect(update).toHaveBeenNthCalledWith(1, expect.objectContaining({ check_run_id: 7 }));
+		expect(update).toHaveBeenNthCalledWith(2, expect.objectContaining({ check_run_id: 8 }));
+	});
+
+	it('retries reconciliation when an ambiguous create is not visible yet', async () => {
+		const { client } = createClient();
+
+		await expect(completeReviewCheck(client, input)).rejects.toThrow(
+			'No Astro Review check run exists for delivery delivery-id.',
 		);
 	});
 });

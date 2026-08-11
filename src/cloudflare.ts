@@ -32,6 +32,22 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 	): Promise<ReviewWorkflowOutcome> {
 		const trigger = v.parse(reviewWorkflowParamsSchema, event.payload);
 		const credentials = credentialsFromWorkerEnv(this.env);
+		const setup = await step.do(
+			'load repository configuration and review skill',
+			{
+				retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+				timeout: '5 minutes',
+			},
+			async () => {
+				const client = await createInstallationClient(credentials, trigger.installationId);
+				return loadReviewSetup(client, trigger);
+			},
+		);
+
+		if (setup.outcome !== 'ready') {
+			return setup;
+		}
+
 		const checkInput: ReviewCheckInput = {
 			owner: trigger.owner,
 			repo: trigger.repo,
@@ -39,7 +55,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 			headSha: trigger.headSha,
 			deliveryId: trigger.deliveryId,
 		};
-		const completeCheck = async (checkRunId: number) => {
+		const completeCheck = async (checkRunId?: number) => {
 			const client = await createInstallationClient(credentials, trigger.installationId);
 			await completeReviewCheck(client, checkInput, checkRunId);
 		};
@@ -54,9 +70,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 				return startReviewCheck(client, checkInput);
 			},
 			{
-				rollback: async ({ output }) => {
-					if (output !== undefined) await completeCheck(output);
-				},
+				rollback: async ({ output }) => completeCheck(output),
 				rollbackConfig: {
 					retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
 					timeout: '5 minutes',
@@ -75,22 +89,6 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 					return checkRunId;
 				},
 			);
-		const setup = await step.do(
-			'load repository configuration and review skill',
-			{
-				retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
-				timeout: '5 minutes',
-			},
-			async () => {
-				const client = await createInstallationClient(credentials, trigger.installationId);
-				return loadReviewSetup(client, trigger);
-			},
-		);
-
-		if (setup.outcome !== 'ready') {
-			await finishCheck();
-			return setup;
-		}
 
 		const agent = init(PullRequestReviewer, {
 			id: [

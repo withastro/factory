@@ -11,12 +11,12 @@ repositories are acknowledged but ignored.
 ## How it works
 
 1. GitHub sends a signed `pull_request.labeled` webhook.
-2. A Cloudflare Workflow creates an `in_progress` GitHub Check Run, then loads
-   `.github/astro-review.yml` or
+2. A Cloudflare Workflow loads `.github/astro-review.yml` or
    `.github/astro-review.yaml` and the configured skill from the pull request's
    immutable base SHA.
-3. A Flue agent reviews the change with read-only GitHub tools and
-   `@cf/moonshotai/kimi-k2.6` on Workers AI.
+3. For a matching trigger label, the Workflow creates an `in_progress` GitHub
+   Check Run and a Flue agent reviews the change with read-only GitHub tools and
+   `@cf/moonshotai/kimi-k2.7-code` on Workers AI.
 4. The Workflow validates every proposed inline location against GitHub's diff,
    verifies that the head SHA and trigger label are unchanged, and publishes a
    `COMMENT` review.
@@ -72,6 +72,9 @@ Create a GitHub App after the initial Worker deployment with these settings:
 - Repository permission `Checks`: Read and write
 - Repository permission `Pull requests`: Read and write
 - Subscribe to the `Pull request` event
+
+When adding the Checks permission to an existing GitHub App, approve the new
+permission for each existing installation before deploying this version.
 
 Generate a private key and note the App ID. If the downloaded key begins with
 `-----BEGIN RSA PRIVATE KEY-----`, convert it from PKCS#1 to unencrypted PKCS#8:

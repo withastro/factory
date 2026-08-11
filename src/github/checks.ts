@@ -14,22 +14,10 @@ export async function startReviewCheck(
 	client: InstallationClient,
 	input: ReviewCheckInput,
 ): Promise<number> {
-	for (let page = 1; ; page += 1) {
-		const response = await client.rest.checks.listForRef({
-			owner: input.owner,
-			repo: input.repo,
-			ref: input.headSha,
-			check_name: REVIEW_CHECK_NAME,
-			filter: 'all',
-			per_page: 100,
-			page,
-		});
-		const existing = response.data.check_runs.find(
-			(check) => check.external_id === input.deliveryId,
-		);
-		if (existing) return existing.id;
-		if (response.data.check_runs.length < 100) break;
-	}
+	const existing = (await listReviewChecks(client, input)).find(
+		(check) => check.status !== 'completed',
+	);
+	if (existing) return existing.id;
 
 	const response = await client.rest.checks.create({
 		owner: input.owner,
@@ -51,22 +39,59 @@ export async function startReviewCheck(
 export async function completeReviewCheck(
 	client: InstallationClient,
 	input: ReviewCheckInput,
-	checkRunId: number,
+	checkRunId?: number,
 ): Promise<void> {
-	await client.rest.checks.update({
-		owner: input.owner,
-		repo: input.repo,
-		check_run_id: checkRunId,
-		status: 'completed',
-		conclusion: 'success',
-		external_id: input.deliveryId,
-		details_url: pullRequestUrl(input),
-		completed_at: new Date().toISOString(),
-		output: {
-			title: 'Review complete',
-			summary: 'Astro Review finished. Findings, if any, were posted on the pull request.',
-		},
-	});
+	const checkRunIds = new Set(
+		(await listReviewChecks(client, input))
+			.filter((check) => check.status !== 'completed')
+			.map((check) => check.id),
+	);
+	if (checkRunId !== undefined) checkRunIds.add(checkRunId);
+	if (checkRunIds.size === 0) {
+		throw new Error(`No ${REVIEW_CHECK_NAME} check run exists for delivery ${input.deliveryId}.`);
+	}
+
+	for (const id of checkRunIds) {
+		await client.rest.checks.update({
+			owner: input.owner,
+			repo: input.repo,
+			check_run_id: id,
+			status: 'completed',
+			conclusion: 'success',
+			external_id: input.deliveryId,
+			details_url: pullRequestUrl(input),
+			completed_at: new Date().toISOString(),
+			output: {
+				title: 'Review complete',
+				summary: 'Astro Review finished. Findings, if any, were posted on the pull request.',
+			},
+		});
+	}
+}
+
+async function listReviewChecks(
+	client: InstallationClient,
+	input: ReviewCheckInput,
+): Promise<Array<{ id: number; status: string }>> {
+	const matches: Array<{ id: number; status: string }> = [];
+	for (let page = 1; ; page += 1) {
+		const response = await client.rest.checks.listForRef({
+			owner: input.owner,
+			repo: input.repo,
+			ref: input.headSha,
+			check_name: REVIEW_CHECK_NAME,
+			filter: 'all',
+			per_page: 100,
+			page,
+		});
+		for (const check of response.data.check_runs) {
+			if (check.external_id === input.deliveryId) {
+				matches.push({ id: check.id, status: check.status });
+			}
+		}
+		if (response.data.check_runs.length < 100) break;
+	}
+	return matches;
 }
 
 function pullRequestUrl(input: ReviewCheckInput): string {
