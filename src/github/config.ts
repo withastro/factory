@@ -1,7 +1,10 @@
 import { load as parseYaml } from 'js-yaml';
 import * as v from 'valibot';
 
-export const REPOSITORY_CONFIG_PATH = '.github/astro-review.yml';
+export const REPOSITORY_CONFIG_PATHS = [
+	'.github/astro-review.yml',
+	'.github/astro-review.yaml',
+] as const;
 export const DEFAULT_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
 export const DEFAULT_AREAS = [
 	'design',

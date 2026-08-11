@@ -11,8 +11,9 @@ repositories are acknowledged but ignored.
 ## How it works
 
 1. GitHub sends a signed `pull_request.labeled` webhook.
-2. A Cloudflare Workflow loads `.github/astro-review.yml` and the configured skill
-   from the pull request's immutable base SHA.
+2. A Cloudflare Workflow loads `.github/astro-review.yml` or
+   `.github/astro-review.yaml` and the configured skill from the pull request's
+   immutable base SHA.
 3. A Flue agent reviews the change with read-only GitHub tools and
    `@cf/moonshotai/kimi-k2.6` on Workers AI.
 4. The Workflow validates every proposed inline location against GitHub's diff,
@@ -123,7 +124,8 @@ live deliveries.
 
 ## Repository setup
 
-Commit `.github/astro-review.yml` to the target repository's base branch:
+Commit `.github/astro-review.yml` or `.github/astro-review.yaml` to the target
+repository's base branch. If both exist, `.yml` takes precedence:
 
 ```yaml
 version: 1

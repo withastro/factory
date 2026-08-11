@@ -3,7 +3,7 @@ import type {
 	ReviewWorkflowParams,
 	SkillSnapshot,
 } from '../contracts/review.ts';
-import { parseRepositoryConfig, REPOSITORY_CONFIG_PATH } from './config.ts';
+import { parseRepositoryConfig, REPOSITORY_CONFIG_PATHS } from './config.ts';
 import type { InstallationClient } from './client.ts';
 import {
 	assertSkillFileBudget,
@@ -33,23 +33,27 @@ export async function loadReviewSetup(
 		return { outcome: 'stale', reason: 'The pull request head changed before review started.' };
 	}
 
-	let configSource: string;
-	try {
-		configSource = await readRepositoryFile(
-			client,
-			trigger.owner,
-			trigger.repo,
-			REPOSITORY_CONFIG_PATH,
-			trigger.baseSha,
-		);
-	} catch (error) {
-		if (isGitHubStatus(error, 404)) {
-			return {
-				outcome: 'ignored',
-				reason: `${REPOSITORY_CONFIG_PATH} does not exist at the pull request base SHA.`,
-			};
+	let configSource: string | undefined;
+	for (const path of REPOSITORY_CONFIG_PATHS) {
+		try {
+			configSource = await readRepositoryFile(
+				client,
+				trigger.owner,
+				trigger.repo,
+				path,
+				trigger.baseSha,
+			);
+			break;
+		} catch (error) {
+			if (!isGitHubStatus(error, 404)) throw error;
 		}
-		throw error;
+	}
+
+	if (configSource === undefined) {
+		return {
+			outcome: 'ignored',
+			reason: `Neither ${REPOSITORY_CONFIG_PATHS[0]} nor ${REPOSITORY_CONFIG_PATHS[1]} exists at the pull request base SHA.`,
+		};
 	}
 
 	const config = parseRepositoryConfig(configSource);

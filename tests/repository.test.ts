@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ReviewWorkflowParams } from '../src/contracts/review.ts';
 import type { InstallationClient } from '../src/github/client.ts';
+import { REPOSITORY_CONFIG_PATHS } from '../src/github/config.ts';
 import { loadReviewSetup } from '../src/github/repository.ts';
 
 const BASE_SHA = 'a'.repeat(40);
@@ -40,10 +41,16 @@ function trigger(): ReviewWorkflowParams {
 	};
 }
 
-function createClient(labels: Array<{ name: string }> = [{ name: 'astro-review' }]) {
+function createClient(
+	labels: Array<{ name: string }> = [{ name: 'astro-review' }],
+	configPaths: readonly string[] = [REPOSITORY_CONFIG_PATHS[0]],
+) {
 	const getContent = vi.fn(async ({ path }: { path: string }) => {
-		if (path === '.github/astro-review.yml') {
+		if (configPaths.includes(path)) {
 			return { data: { type: 'file', content: encode(CONFIG), encoding: 'base64' } };
+		}
+		if ((REPOSITORY_CONFIG_PATHS as readonly string[]).includes(path)) {
+			throw Object.assign(new Error(`Not found: ${path}`), { status: 404 });
 		}
 		if (path === SKILL_DIRECTORY) {
 			return {
@@ -103,6 +110,46 @@ describe('review setup', () => {
 		for (const [request] of getContent.mock.calls) {
 			expect(request).toMatchObject({ ref: BASE_SHA });
 		}
+	});
+
+	it('falls back to the .yaml configuration extension', async () => {
+		const { client, getContent } = createClient(
+			[{ name: 'astro-review' }],
+			[REPOSITORY_CONFIG_PATHS[1]],
+		);
+
+		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({ outcome: 'ready' });
+		expect(getContent.mock.calls.map(([request]) => request.path)).toEqual([
+			REPOSITORY_CONFIG_PATHS[0],
+			REPOSITORY_CONFIG_PATHS[1],
+			SKILL_DIRECTORY,
+		]);
+	});
+
+	it('prefers the .yml configuration when both extensions exist', async () => {
+		const { client, getContent } = createClient(
+			[{ name: 'astro-review' }],
+			REPOSITORY_CONFIG_PATHS,
+		);
+
+		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({ outcome: 'ready' });
+		expect(getContent.mock.calls.map(([request]) => request.path)).toEqual([
+			REPOSITORY_CONFIG_PATHS[0],
+			SKILL_DIRECTORY,
+		]);
+	});
+
+	it('ignores repositories without either configuration extension', async () => {
+		const { client, getContent } = createClient([{ name: 'astro-review' }], []);
+
+		await expect(loadReviewSetup(client, trigger())).resolves.toEqual({
+			outcome: 'ignored',
+			reason: `Neither ${REPOSITORY_CONFIG_PATHS[0]} nor ${REPOSITORY_CONFIG_PATHS[1]} exists at the pull request base SHA.`,
+		});
+		expect(getContent.mock.calls.map(([request]) => request.path)).toEqual([
+			REPOSITORY_CONFIG_PATHS[0],
+			REPOSITORY_CONFIG_PATHS[1],
+		]);
 	});
 
 	it('stops before loading the skill when the trigger label was removed', async () => {
