@@ -80,6 +80,12 @@ export type ReviewResultSchema = ReturnType<typeof createReviewResultSchema>;
 export type ReviewResult = v.InferOutput<ReviewResultSchema>;
 export type Finding = ReviewResult['findings'][number];
 
+export function reviewCoordinatorKey(
+	input: Pick<ReviewWorkflowParams, 'repositoryId' | 'pullNumber'>,
+): string {
+	return `${input.repositoryId}:${input.pullNumber}`;
+}
+
 export type ReviewWorkflowOutcome =
 	| { outcome: 'ignored'; reason: string }
 	| { outcome: 'stale'; reason: string }

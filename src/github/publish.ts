@@ -16,7 +16,6 @@ export interface PublishReviewInput {
 	pullNumber: number;
 	headSha: string;
 	deliveryId: string;
-	triggerLabel: string;
 }
 
 export async function publishReview(
@@ -31,11 +30,6 @@ export async function publishReview(
 	});
 	if (pull.data.state !== 'open' || pull.data.head.sha !== input.headSha) {
 		return { outcome: 'stale', reason: 'The pull request changed before publication.' };
-	}
-
-	const labels = pull.data.labels.map((label) => (typeof label === 'string' ? label : label.name));
-	if (!labels.includes(input.triggerLabel)) {
-		return { outcome: 'stale', reason: 'The trigger label was removed before publication.' };
 	}
 
 	const marker = reviewMarker(input.deliveryId, input.headSha);

@@ -10,7 +10,6 @@ const input: PublishReviewInput = {
 	pullNumber: 123,
 	headSha: 'b'.repeat(40),
 	deliveryId: 'delivery-id',
-	triggerLabel: 'astro-review',
 };
 const result: ReviewResult = {
 	summary: 'One issue found.',
@@ -40,7 +39,7 @@ function createClient(options: { existingReview?: boolean } = {}) {
 					data: {
 						state: 'open',
 						head: { sha: input.headSha },
-						labels: [{ name: input.triggerLabel }],
+						labels: [],
 					},
 				})),
 				listReviews,
@@ -75,7 +74,7 @@ function createClient(options: { existingReview?: boolean } = {}) {
 }
 
 describe('review publication', () => {
-	it('publishes validated inline comments against the reviewed commit', async () => {
+	it('publishes against the reviewed commit after the trigger label is removed', async () => {
 		const { client, createReview } = createClient();
 		await expect(publishReview(client, input, result)).resolves.toEqual({
 			outcome: 'published',
@@ -111,16 +110,4 @@ describe('review publication', () => {
 		expect(createReview).not.toHaveBeenCalled();
 	});
 
-	it('does not publish after the label is removed', async () => {
-		const { client, createReview } = createClient();
-		vi.mocked(client.rest.pulls.get).mockResolvedValueOnce({
-			data: { state: 'open', head: { sha: input.headSha }, labels: [] },
-		} as never);
-
-		await expect(publishReview(client, input, result)).resolves.toEqual({
-			outcome: 'stale',
-			reason: 'The trigger label was removed before publication.',
-		});
-		expect(createReview).not.toHaveBeenCalled();
-	});
 });

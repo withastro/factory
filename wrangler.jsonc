@@ -9,6 +9,14 @@
 	"ai": {
 		"binding": "AI"
 	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "REVIEW_COORDINATOR",
+				"class_name": "ReviewCoordinator"
+			}
+		]
+	},
 	"workflows": [
 		{
 			"name": "astro-review",
@@ -30,6 +38,10 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["FluePullRequestReviewerAgent"]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["ReviewCoordinator"]
 		}
 	]
 }

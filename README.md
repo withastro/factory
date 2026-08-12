@@ -11,27 +11,30 @@ repositories are acknowledged but ignored.
 ## How it works
 
 1. GitHub sends a signed `pull_request.labeled` webhook.
-2. A Cloudflare Workflow loads `.github/astro-review.yml` or
+2. A Durable Object keyed by repository and pull request starts one Workflow at
+   a time and coalesces additional triggers into one pending review.
+3. The Workflow loads `.github/astro-review.yml` or
    `.github/astro-review.yaml` and the configured skill from the pull request's
    immutable base SHA.
-3. For a matching trigger label, the Workflow creates an `in_progress` GitHub
-   Check Run and a Flue agent reviews the change with read-only GitHub tools and
-   `@cf/moonshotai/kimi-k2.7-code` on Workers AI.
-4. The Workflow validates every proposed inline location against GitHub's diff,
-   verifies that the head SHA and trigger label are unchanged, and publishes a
-   `COMMENT` review.
-5. The Check Run is completed with a `success` conclusion. It currently reports
+4. For a matching trigger, the Workflow removes the label, creates an
+   `in_progress` GitHub Check Run, and starts a Flue agent with read-only GitHub
+   tools and `@cf/moonshotai/kimi-k2.7-code` on Workers AI.
+5. The Workflow validates every proposed inline location against GitHub's diff,
+   verifies that the pull request is still open at the reviewed head SHA, and
+   publishes a `COMMENT` review without requiring the label to remain present.
+6. The Check Run is completed with a `success` conclusion. It currently reports
    Workflow activity only; findings and Workflow errors do not fail the check.
 
 The model has no GitHub credentials or write tools. Only application code can
 publish a review. A GitHub delivery ID is used for Workflow and publication
-deduplication.
+deduplication. While a review is active, re-adding the trigger label queues one
+more review; subsequent triggers replace that pending review with the latest one.
 
 ## Requirements
 
 - Node.js 22.19 or newer
 - pnpm 10
-- A Cloudflare account with Workers AI and Workflows access
+- A Cloudflare account with Workers AI, Workflows, and Durable Objects access
 - A GitHub App
 
 ## Deploy with Workers Builds

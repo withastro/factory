@@ -7,6 +7,7 @@ import { init } from '@flue/runtime';
 import * as v from 'valibot';
 import { PullRequestReviewer } from './agents/pull-request-reviewer.ts';
 import {
+	reviewCoordinatorKey,
 	reviewWorkflowParamsSchema,
 	type ReviewWorkflowOutcome,
 	type ReviewWorkflowParams,
@@ -21,9 +22,12 @@ import {
 	createInstallationClient,
 	credentialsFromWorkerEnv,
 } from './github/client.ts';
+import { removeTriggerLabel } from './github/labels.ts';
 import { publishReview } from './github/publish.ts';
 import { loadReviewSetup } from './github/repository.ts';
 import { extractReviewResult } from './workflow/result.ts';
+
+export { ReviewCoordinator } from './review-coordinator.ts';
 
 export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflowParams> {
 	override async run(
@@ -31,6 +35,36 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 		step: WorkflowStep,
 	): Promise<ReviewWorkflowOutcome> {
 		const trigger = v.parse(reviewWorkflowParamsSchema, event.payload);
+		const coordinator = this.env.REVIEW_COORDINATOR.getByName(reviewCoordinatorKey(trigger));
+		const completeCoordination = async () => {
+			const result = await coordinator.complete(trigger.deliveryId);
+			return {
+				completed: result.completed,
+				...(result.nextWorkflowId ? { nextWorkflowId: result.nextWorkflowId } : {}),
+			};
+		};
+		await step.do(
+			'register review coordination',
+			async () => trigger.deliveryId,
+			{
+				rollback: async () => {
+					await completeCoordination();
+				},
+				rollbackConfig: {
+					retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+					timeout: '5 minutes',
+				},
+			},
+		);
+		const finishCoordination = () =>
+			step.do(
+				'complete review coordination',
+				{
+					retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+					timeout: '5 minutes',
+				},
+				completeCoordination,
+			);
 		const credentials = credentialsFromWorkerEnv(this.env);
 		const setup = await step.do(
 			'load repository configuration and review skill',
@@ -45,8 +79,27 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 		);
 
 		if (setup.outcome !== 'ready') {
+			await finishCoordination();
 			return setup;
 		}
+
+		await step.do(
+			'remove trigger label',
+			{
+				retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+				timeout: '5 minutes',
+			},
+			async () => {
+				const client = await createInstallationClient(credentials, trigger.installationId);
+				await removeTriggerLabel(client, {
+					owner: trigger.owner,
+					repo: trigger.repo,
+					pullNumber: trigger.pullNumber,
+					label: setup.agentInput.triggerLabel,
+				});
+				return setup.agentInput.triggerLabel;
+			},
+		);
 
 		const checkInput: ReviewCheckInput = {
 			owner: trigger.owner,
@@ -144,13 +197,13 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 						pullNumber: trigger.pullNumber,
 						headSha: trigger.headSha,
 						deliveryId: trigger.deliveryId,
-						triggerLabel: setup.agentInput.triggerLabel,
 					},
 					result,
 				);
 			},
 		);
 		await finishCheck();
+		await finishCoordination();
 		return outcome;
 	}
 }

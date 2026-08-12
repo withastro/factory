@@ -1,8 +1,16 @@
 import { createGitHubChannel } from '@flue/github';
 import * as v from 'valibot';
-import { reviewWorkflowParamsSchema } from '../contracts/review.ts';
+import {
+	reviewCoordinatorKey,
+	reviewWorkflowParamsSchema,
+} from '../contracts/review.ts';
 import type { AppHonoEnv } from '../env.ts';
-import { requiredProcessEnv } from '../github/client.ts';
+import {
+	createInstallationClient,
+	credentialsFromWorkerEnv,
+	requiredProcessEnv,
+} from '../github/client.ts';
+import { matchesReviewTrigger } from '../github/repository.ts';
 
 export const githubChannel = createGitHubChannel<AppHonoEnv>({
 	webhookSecret: requiredProcessEnv('GITHUB_WEBHOOK_SECRET'),
@@ -28,28 +36,19 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 			baseSha: pull.base.sha,
 			headSha: pull.head.sha,
 		});
-
-		const deduplicated = await startReviewWorkflow(
-			c.env.REVIEW_WORKFLOW,
-			delivery.deliveryId,
-			params,
+		const client = await createInstallationClient(
+			credentialsFromWorkerEnv(c.env),
+			params.installationId,
 		);
-		return Response.json({ accepted: true, deduplicated, workflowId: delivery.deliveryId });
+		if (!(await matchesReviewTrigger(client, params))) {
+			return Response.json({
+				accepted: false,
+				reason: `Label "${params.label}" is not the configured Astro Review trigger.`,
+			});
+		}
+
+		const coordinator = c.env.REVIEW_COORDINATOR.getByName(reviewCoordinatorKey(params));
+		const admission = await coordinator.enqueue(params);
+		return Response.json({ accepted: true, ...admission });
 	},
 });
-
-async function startReviewWorkflow(
-	workflow: Workflow,
-	id: string,
-	params: v.InferOutput<typeof reviewWorkflowParamsSchema>,
-): Promise<boolean> {
-	try {
-		await workflow.create({ id, params });
-		return false;
-	} catch (error) {
-		const existing = await workflow.get(id);
-		const status = await existing.status();
-		if (status.status !== 'unknown') return true;
-		throw error;
-	}
-}

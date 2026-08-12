@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ReviewWorkflowParams } from '../src/contracts/review.ts';
 import type { InstallationClient } from '../src/github/client.ts';
 import { REPOSITORY_CONFIG_PATHS } from '../src/github/config.ts';
-import { loadReviewSetup } from '../src/github/repository.ts';
+import {
+	loadReviewSetup,
+	matchesReviewTrigger,
+} from '../src/github/repository.ts';
 
 const BASE_SHA = 'a'.repeat(40);
 const HEAD_SHA = 'b'.repeat(40);
@@ -91,6 +94,19 @@ function createClient(
 }
 
 describe('review setup', () => {
+	it('matches the configured trigger without loading the review skill', async () => {
+		const { client, getContent } = createClient();
+
+		await expect(matchesReviewTrigger(client, trigger())).resolves.toBe(true);
+		await expect(
+			matchesReviewTrigger(client, { ...trigger(), label: 'documentation' }),
+		).resolves.toBe(false);
+		expect(getContent).toHaveBeenCalledTimes(2);
+		expect(getContent).not.toHaveBeenCalledWith(
+			expect.objectContaining({ path: SKILL_DIRECTORY }),
+		);
+	});
+
 	it('loads configuration and skill only from the event base SHA', async () => {
 		const { client, getContent } = createClient();
 		const result = await loadReviewSetup(client, trigger());

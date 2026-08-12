@@ -3,7 +3,11 @@ import type {
 	ReviewWorkflowParams,
 	SkillSnapshot,
 } from '../contracts/review.ts';
-import { parseRepositoryConfig, REPOSITORY_CONFIG_PATHS } from './config.ts';
+import {
+	parseRepositoryConfig,
+	REPOSITORY_CONFIG_PATHS,
+	type RepositoryConfig,
+} from './config.ts';
 import type { InstallationClient } from './client.ts';
 import {
 	assertSkillFileBudget,
@@ -15,6 +19,19 @@ export type ReviewSetup =
 	| { outcome: 'ignored'; reason: string }
 	| { outcome: 'stale'; reason: string }
 	| { outcome: 'ready'; agentInput: ReviewAgentInput };
+
+export async function matchesReviewTrigger(
+	client: InstallationClient,
+	trigger: ReviewWorkflowParams,
+): Promise<boolean> {
+	const config = await loadRepositoryConfig(
+		client,
+		trigger.owner,
+		trigger.repo,
+		trigger.baseSha,
+	);
+	return config?.trigger.label === trigger.label;
+}
 
 export async function loadReviewSetup(
 	client: InstallationClient,
@@ -33,30 +50,19 @@ export async function loadReviewSetup(
 		return { outcome: 'stale', reason: 'The pull request head changed before review started.' };
 	}
 
-	let configSource: string | undefined;
-	for (const path of REPOSITORY_CONFIG_PATHS) {
-		try {
-			configSource = await readRepositoryFile(
-				client,
-				trigger.owner,
-				trigger.repo,
-				path,
-				trigger.baseSha,
-			);
-			break;
-		} catch (error) {
-			if (!isGitHubStatus(error, 404)) throw error;
-		}
-	}
-
-	if (configSource === undefined) {
+	const config = await loadRepositoryConfig(
+		client,
+		trigger.owner,
+		trigger.repo,
+		trigger.baseSha,
+	);
+	if (config === undefined) {
 		return {
 			outcome: 'ignored',
 			reason: `Neither ${REPOSITORY_CONFIG_PATHS[0]} nor ${REPOSITORY_CONFIG_PATHS[1]} exists at the pull request base SHA.`,
 		};
 	}
 
-	const config = parseRepositoryConfig(configSource);
 	if (config.trigger.label !== trigger.label) {
 		return {
 			outcome: 'ignored',
@@ -95,6 +101,23 @@ export async function loadReviewSetup(
 			skill,
 		},
 	};
+}
+
+async function loadRepositoryConfig(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	ref: string,
+): Promise<RepositoryConfig | undefined> {
+	for (const path of REPOSITORY_CONFIG_PATHS) {
+		try {
+			const source = await readRepositoryFile(client, owner, repo, path, ref);
+			return parseRepositoryConfig(source);
+		} catch (error) {
+			if (!isGitHubStatus(error, 404)) throw error;
+		}
+	}
+	return undefined;
 }
 
 async function readSkillSnapshot(
