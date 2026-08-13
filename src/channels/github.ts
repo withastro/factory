@@ -24,6 +24,15 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 		if (!installation) {
 			throw new Error('A pull request delivery from a GitHub App must include an installation.');
 		}
+		const client = await createInstallationClient(
+			credentialsFromWorkerEnv(c.env),
+			installation.id,
+		);
+		const baseBranch = await client.rest.repos.getBranch({
+			owner: repository.owner.login,
+			repo: repository.name,
+			branch: pull.base.ref,
+		});
 
 		const params = v.parse(reviewWorkflowParamsSchema, {
 			deliveryId: delivery.deliveryId,
@@ -34,12 +43,9 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 			pullNumber: pull.number,
 			label: label.name,
 			baseSha: pull.base.sha,
+			configurationSha: baseBranch.data.commit.sha,
 			headSha: pull.head.sha,
 		});
-		const client = await createInstallationClient(
-			credentialsFromWorkerEnv(c.env),
-			params.installationId,
-		);
 		if (!(await matchesReviewTrigger(client, params))) {
 			return Response.json({
 				accepted: false,

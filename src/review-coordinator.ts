@@ -168,7 +168,14 @@ export class ReviewCoordinator extends DurableObject<ReviewCoordinatorEnv> {
 	}
 
 	private async loadState(): Promise<ReviewQueueState> {
-		return (await this.ctx.storage.get<ReviewQueueState>(STATE_KEY)) ?? {};
+		const state = (await this.ctx.storage.get<ReviewQueueState>(STATE_KEY)) ?? {};
+		if (state.active) {
+			state.active.params = v.parse(reviewWorkflowParamsSchema, state.active.params);
+		}
+		if (state.pending) {
+			state.pending = v.parse(reviewWorkflowParamsSchema, state.pending);
+		}
+		return state;
 	}
 
 	private async saveState(state: ReviewQueueState): Promise<void> {

@@ -28,7 +28,7 @@ export async function matchesReviewTrigger(
 		client,
 		trigger.owner,
 		trigger.repo,
-		trigger.baseSha,
+		trigger.configurationSha,
 	);
 	return config?.trigger.label === trigger.label;
 }
@@ -54,12 +54,12 @@ export async function loadReviewSetup(
 		client,
 		trigger.owner,
 		trigger.repo,
-		trigger.baseSha,
+		trigger.configurationSha,
 	);
 	if (config === undefined) {
 		return {
 			outcome: 'ignored',
-			reason: `Neither ${REPOSITORY_CONFIG_PATHS[0]} nor ${REPOSITORY_CONFIG_PATHS[1]} exists at the pull request base SHA.`,
+			reason: `Neither ${REPOSITORY_CONFIG_PATHS[0]} nor ${REPOSITORY_CONFIG_PATHS[1]} exists at the target branch snapshot.`,
 		};
 	}
 
@@ -79,7 +79,7 @@ export async function loadReviewSetup(
 		trigger.owner,
 		trigger.repo,
 		config.review.skill,
-		trigger.baseSha,
+		trigger.configurationSha,
 	);
 
 	return {

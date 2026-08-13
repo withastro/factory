@@ -3,17 +3,24 @@ import * as v from 'valibot';
 const shaSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{40}$/i));
 const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
 
-export const reviewWorkflowParamsSchema = v.object({
-	deliveryId: nonEmptyString,
-	installationId: v.pipe(v.number(), v.integer(), v.minValue(1)),
-	repositoryId: v.pipe(v.number(), v.integer(), v.minValue(1)),
-	owner: nonEmptyString,
-	repo: nonEmptyString,
-	pullNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
-	label: nonEmptyString,
-	baseSha: shaSchema,
-	headSha: shaSchema,
-});
+export const reviewWorkflowParamsSchema = v.pipe(
+	v.object({
+		deliveryId: nonEmptyString,
+		installationId: v.pipe(v.number(), v.integer(), v.minValue(1)),
+		repositoryId: v.pipe(v.number(), v.integer(), v.minValue(1)),
+		owner: nonEmptyString,
+		repo: nonEmptyString,
+		pullNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
+		label: nonEmptyString,
+		baseSha: shaSchema,
+		configurationSha: v.optional(shaSchema),
+		headSha: shaSchema,
+	}),
+	v.transform((params) => ({
+		...params,
+		configurationSha: params.configurationSha ?? params.baseSha,
+	})),
+);
 
 export const skillSnapshotSchema = v.object({
 	name: v.pipe(v.string(), v.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)),

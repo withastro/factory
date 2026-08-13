@@ -36,6 +36,7 @@ function reviewParams(deliveryId: string): ReviewWorkflowParams {
 		pullNumber: 789,
 		label: 'astro-review',
 		baseSha: 'a'.repeat(40),
+		configurationSha: 'c'.repeat(40),
 		headSha: 'b'.repeat(40),
 	};
 }
@@ -78,6 +79,7 @@ function createHarness() {
 		create,
 		statuses,
 		getAlarm: () => alarm,
+		seedState: (state: unknown) => values.set('review-queue', structuredClone(state)),
 	};
 }
 
@@ -162,5 +164,19 @@ describe('review coordinator', () => {
 			'delivery-1',
 			'delivery-2',
 		]);
+	});
+
+	it('normalizes queued records created before configuration snapshots', async () => {
+		const { coordinator, create, seedState, statuses } = createHarness();
+		const { configurationSha: _activeSha, ...active } = reviewParams('delivery-1');
+		const { configurationSha: _pendingSha, ...pending } = reviewParams('delivery-2');
+		seedState({ active: { params: active, phase: 'running' }, pending });
+		statuses.set('delivery-1', 'errored');
+
+		await coordinator.alarm();
+		expect(create).toHaveBeenCalledWith({
+			id: 'delivery-2',
+			params: { ...pending, configurationSha: pending.baseSha },
+		});
 	});
 });

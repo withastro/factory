@@ -8,6 +8,7 @@ import {
 } from '../src/github/repository.ts';
 
 const BASE_SHA = 'a'.repeat(40);
+const CONFIGURATION_SHA = 'c'.repeat(40);
 const HEAD_SHA = 'b'.repeat(40);
 const SKILL_DIRECTORY = '.agents/skills/astro-review';
 const CONFIG = `version: 1
@@ -40,6 +41,7 @@ function trigger(): ReviewWorkflowParams {
 		pullNumber: 789,
 		label: 'astro-review',
 		baseSha: BASE_SHA,
+		configurationSha: CONFIGURATION_SHA,
 		headSha: HEAD_SHA,
 	};
 }
@@ -102,12 +104,15 @@ describe('review setup', () => {
 			matchesReviewTrigger(client, { ...trigger(), label: 'documentation' }),
 		).resolves.toBe(false);
 		expect(getContent).toHaveBeenCalledTimes(2);
+		for (const [request] of getContent.mock.calls) {
+			expect(request).toMatchObject({ ref: CONFIGURATION_SHA });
+		}
 		expect(getContent).not.toHaveBeenCalledWith(
 			expect.objectContaining({ path: SKILL_DIRECTORY }),
 		);
 	});
 
-	it('loads configuration and skill only from the event base SHA', async () => {
+	it('loads configuration and skill from the target branch snapshot', async () => {
 		const { client, getContent } = createClient();
 		const result = await loadReviewSetup(client, trigger());
 
@@ -124,7 +129,7 @@ describe('review setup', () => {
 		});
 		expect(getContent).toHaveBeenCalledTimes(2);
 		for (const [request] of getContent.mock.calls) {
-			expect(request).toMatchObject({ ref: BASE_SHA });
+			expect(request).toMatchObject({ ref: CONFIGURATION_SHA });
 		}
 	});
 
@@ -160,7 +165,7 @@ describe('review setup', () => {
 
 		await expect(loadReviewSetup(client, trigger())).resolves.toEqual({
 			outcome: 'ignored',
-			reason: `Neither ${REPOSITORY_CONFIG_PATHS[0]} nor ${REPOSITORY_CONFIG_PATHS[1]} exists at the pull request base SHA.`,
+			reason: `Neither ${REPOSITORY_CONFIG_PATHS[0]} nor ${REPOSITORY_CONFIG_PATHS[1]} exists at the target branch snapshot.`,
 		});
 		expect(getContent.mock.calls.map(([request]) => request.path)).toEqual([
 			REPOSITORY_CONFIG_PATHS[0],

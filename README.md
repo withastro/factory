@@ -15,7 +15,7 @@ repositories are acknowledged but ignored.
    a time and coalesces additional triggers into one pending review.
 3. The Workflow loads `.github/astro-review.yml` or
    `.github/astro-review.yaml` and the configured skill from the pull request's
-   immutable base SHA.
+   target branch at the immutable SHA captured during webhook processing.
 4. For a matching trigger, the Workflow removes the label, creates an
    `in_progress` GitHub Check Run, and starts a Flue agent with read-only GitHub
    tools and `@cf/moonshotai/kimi-k2.7-code` on Workers AI.
@@ -179,15 +179,17 @@ unique names; omitting them uses the values shown above. The configuration is
 the allowed vocabulary, while the skill defines how the agent should assess,
 weight, and map findings to those values.
 
-Configuration and skill files are always read from the pull request's base SHA,
-not its unreviewed head. Changes to either file in a pull request therefore take
-effect only after they reach the target branch.
+Configuration and skill files are read from an immutable snapshot of the current
+target branch, never from the pull request's unreviewed head. Changes to either
+file in a pull request therefore take effect only after they reach the target
+branch.
 
 ## Triggering reviews
 
-Add the exact configured label to an open pull request. The label must remain on
-the pull request until publication, and the head commit must not change. To run
-another review, remove and re-add the label.
+Add the exact configured label to an open pull request. The app removes the label
+when review work starts. Re-adding it while a review is active queues one more
+review; later triggers replace that pending review. The head commit must not
+change while its review is running.
 
 The app publishes at most 20 inline comments per review. Duplicate locations,
 locations absent from GitHub's available patch, and excess findings are retained
