@@ -2,10 +2,11 @@
  * Repository configuration: `.github/factory.yml` in the target repository.
  *
  * Every section is optional. A repository with no configuration file at all
- * gets triage with all defaults and no review capability (review requires a
- * repository-owned skill). Configuration is always read from maintainer
- * controlled content (the default branch or the pull request's target branch),
- * never from PR heads or forks.
+ * gets triage with all defaults and no review capability. A configured review
+ * section uses the bundled review skill unless the repository provides an
+ * override. Configuration is always read from maintainer controlled content
+ * (the default branch or the pull request's target branch), never from PR heads
+ * or forks.
  */
 
 import { load as parseYaml } from 'js-yaml';
@@ -55,7 +56,7 @@ const factoryConfigSchema = v.object({
 	review: v.optional(
 		v.object({
 			trigger: v.object({ label: labelNameSchema }),
-			skill: v.pipe(v.string(), v.trim(), v.minLength(1)),
+			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 			severity: v.optional(classificationListSchema),
 			areas: v.optional(classificationListSchema),
 		}),
@@ -78,7 +79,8 @@ function labelConfigShape() {
 
 export interface ReviewConfig {
 	trigger: { label: string };
-	skill: string;
+	/** Repository skill override; the bundled default skill is used when absent. */
+	skill: string | undefined;
 	severity: string[];
 	areas: string[];
 }
@@ -115,7 +117,9 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 		review: config.review
 			? {
 					trigger: config.review.trigger,
-					skill: validateSkillDirectory(config.review.skill),
+					skill: config.review.skill
+						? validateSkillDirectory(config.review.skill)
+						: undefined,
 					severity: config.review.severity ?? [...DEFAULT_SEVERITIES],
 					areas: config.review.areas ?? [...DEFAULT_AREAS],
 				}

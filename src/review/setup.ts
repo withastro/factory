@@ -1,14 +1,15 @@
 /**
- * Loads everything a review run needs from the target repository: the factory
- * configuration and the repository-owned review skill, both read at the
- * immutable target-branch SHA captured during webhook processing (never from
- * the PR head).
+ * Loads everything a review run needs: repository configuration plus either
+ * the bundled review skill or a repository override. Repository content is
+ * read at the immutable target-branch SHA captured during webhook processing
+ * (never from the PR head).
  */
 
 import { loadFactoryConfig, REPOSITORY_CONFIG_PATHS, type ReviewConfig } from '../config.ts';
 import type { InstallationClient } from '../github/client.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
 import type { ReviewAgentInput, ReviewWorkflowParams } from './contracts.ts';
+import { defaultReviewSkill } from './default-skill.ts';
 
 export type ReviewSetup =
 	| { outcome: 'ignored'; reason: string }
@@ -59,13 +60,15 @@ export async function loadReviewSetup(
 		return { outcome: 'stale', reason: 'The trigger label was removed before review started.' };
 	}
 
-	const skill = await readSkillSnapshot(
-		client,
-		trigger.owner,
-		trigger.repo,
-		config.skill,
-		trigger.configurationSha,
-	);
+	const skill = config.skill
+		? await readSkillSnapshot(
+				client,
+				trigger.owner,
+				trigger.repo,
+				config.skill,
+				trigger.configurationSha,
+			)
+		: defaultReviewSkill();
 
 	return {
 		outcome: 'ready',
