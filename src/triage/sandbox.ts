@@ -4,8 +4,14 @@
  * and edit code.
  *
  * Security model:
- * - Only public repositories are triaged; the clone is anonymous, so the
- *   sandbox holds no credentials while the agent runs.
+ * - Public repositories clone anonymously (blobless, single branch), so the
+ *   sandbox holds no credentials while the agent runs; lazy blob fetches
+ *   from origin stay anonymous too.
+ * - Private repositories clone with a short-lived contents-read token passed
+ *   as a one-shot `http.extraHeader` — never written to git config — and get
+ *   a *full* single-branch clone so nothing ever needs the network again;
+ *   the origin remote is then removed entirely. Either way, the agent runs
+ *   with zero usable GitHub credentials.
  * - The push step injects a short-lived, contents-only installation token
  *   into a single git command and never persists it to git config.
  * - Every git command runs with GIT_TERMINAL_PROMPT=0 under a hard timeout
@@ -53,6 +59,11 @@ export interface WorkspaceSetup {
 	defaultBranch: string;
 	fixBranch: string;
 	skill: SkillSnapshot;
+	/**
+	 * Contents-read installation token; required for private repositories.
+	 * Used once during clone via `http.extraHeader` and never persisted.
+	 */
+	cloneToken?: string;
 }
 
 /**
@@ -71,20 +82,26 @@ export async function setupTriageWorkspace(
 
 	await execOrThrow(sandbox, 'prepare', `rm -rf ${REPO_DIR} && mkdir -p ${REPO_DIR}`, 30);
 
-	// Blobless single-branch clone: full history for git blame/diff, blobs
-	// fetched on demand. Public repositories only, so no credentials.
+	// Public: blobless single-branch clone — full history for git blame/diff,
+	// blobs fetched anonymously on demand.
+	// Private: full single-branch clone with one-shot header auth, so the
+	// checkout is self-contained and no credential outlives this command.
 	const cloneUrl = `https://github.com/${setup.owner}/${setup.repo}.git`;
+	const authConfig = setup.cloneToken
+		? `-c http.extraHeader=${shellQuote(`Authorization: basic ${btoa(`x-access-token:${setup.cloneToken}`)}`)} `
+		: '';
+	const filterFlags = setup.cloneToken ? '' : '--filter=blob:none ';
 	await execOrThrow(
 		sandbox,
 		'clone',
 		[
-			'git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30',
-			`clone --filter=blob:none --single-branch --no-tags`,
+			`git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 ${authConfig}`.trimEnd(),
+			`clone ${filterFlags}--single-branch --no-tags`.trimEnd(),
 			`--branch ${shellQuote(setup.defaultBranch)}`,
 			shellQuote(cloneUrl),
 			REPO_DIR,
 		].join(' '),
-		600,
+		900,
 	);
 
 	await execOrThrow(
@@ -95,6 +112,9 @@ export async function setupTriageWorkspace(
 			`git config user.name ${shellQuote('factory[bot]')}`,
 			`git config user.email ${shellQuote('factory[bot]@users.noreply.github.com')}`,
 			`git checkout -B ${shellQuote(setup.fixBranch)}`,
+			// A private checkout is self-contained; remove the remote so the
+			// agent has nothing to fetch from or push to.
+			...(setup.cloneToken ? ['git remote remove origin'] : []),
 		].join(' && '),
 		60,
 	);

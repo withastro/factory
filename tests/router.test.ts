@@ -63,6 +63,7 @@ describe('webhook dispatch router', () => {
 					issueNumber: 42,
 					defaultBranch: 'main',
 					issueAction: action,
+					repoIsPrivate: false,
 				},
 			});
 		},
@@ -116,7 +117,7 @@ describe('webhook dispatch router', () => {
 		expect(dispatch).toEqual({ kind: 'none', reason: 'Comment from bot (factory[bot]).' });
 	});
 
-	it('ignores private repositories', () => {
+	it('routes private repositories to triage with the private flag set', () => {
 		const dispatch = routeDelivery(
 			'issues',
 			{
@@ -127,10 +128,29 @@ describe('webhook dispatch router', () => {
 			},
 			'delivery-6',
 		);
-		expect(dispatch).toEqual({
-			kind: 'none',
-			reason: 'Private repositories are not supported.',
+		expect(dispatch).toMatchObject({
+			kind: 'triage',
+			params: { issueNumber: 42, repoIsPrivate: true },
 		});
+	});
+
+	it('routes private repositories to review', () => {
+		const dispatch = routeDelivery(
+			'pull_request',
+			{
+				action: 'labeled',
+				installation,
+				repository: { ...repository, private: true },
+				label: { name: 'ai-review' },
+				pull_request: {
+					number: 789,
+					base: { ref: 'main', sha: 'a'.repeat(40) },
+					head: { sha: 'b'.repeat(40) },
+				},
+			},
+			'delivery-7',
+		);
+		expect(dispatch).toMatchObject({ kind: 'review', params: { pullNumber: 789 } });
 	});
 
 	it('ignores unhandled events and actions', () => {
