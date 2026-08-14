@@ -50,9 +50,15 @@ SHA captured at webhook time — never from the PR head.
 A label-driven state machine over issues, with all state living in GitHub
 labels (visible, maintainer-overridable):
 
-- Issue opened/reopened → triage pipeline (reproduce → diagnose → verify →
-  fix). **The sandboxed pipeline is the next milestone; today these runs
-  settle as `pipeline-pending` without touching the issue.**
+- Issue opened/reopened → the full pipeline (reproduce → diagnose → verify →
+  fix) runs in a **Cloudflare Sandbox container** holding a real checkout of
+  the repository: a hardened blobless clone of the default branch, a
+  `factory/fix-N` branch, the skill seeded into the workspace, and a shell
+  for building and testing. The workflow then commits and force-pushes any
+  changes (the contents-scoped token exists only inside that one step and
+  never reaches the agent), optionally opens a PR (`autoPrOnFix`), generates
+  the triage comment from the pipeline's `report.md`, applies the resolved
+  state label, and selects priority/package labels.
 - Comment on `triage: fix pending` → the FixVerifier agent classifies the
   reporter's response: confirmed → open the fix PR + `fix verified`;
   rejected → `fix rejected`.
@@ -92,6 +98,9 @@ triage:
 Skills resolve as **bundled default, repository override wins**: the factory
 ships a generic triage skill (`skills/triage/`); a repository can replace it
 by committing `.agents/skills/triage/` and pointing `triage.skill` at it.
+(The bundled entry file is stored as `skill.md` — Flue's vite plugin treats
+imports literally named `SKILL.md` as packaged skills, and we need the raw
+text; it's seeded into the sandbox as `SKILL.md`.)
 
 ## GitHub App setup
 
@@ -111,7 +120,7 @@ acknowledged and ignored.
 
 ```sh
 pnpm install
-pnpm dev          # local dev (vite + workerd)
+pnpm dev          # local dev (vite + workerd); triage sandboxes need Docker running
 pnpm test         # vitest
 pnpm check:types  # tsc
 pnpm deploy       # vite build && wrangler deploy
@@ -124,12 +133,11 @@ for generated classes (see `wrangler.jsonc`).
 
 ## Roadmap
 
-1. **Sandboxed triage pipeline** — Cloudflare Sandbox containers running the
-   reproduce/diagnose/verify/fix skill steps against a real checkout
-   (hardened staged clone; write token never enters the sandbox).
-2. **Preview releases** — a repo-side `workflow_dispatch` Action the factory
+1. **Preview releases** — a repo-side `workflow_dispatch` Action the factory
    triggers after pushing a fix branch (`pkg-pr-new` needs Actions OIDC);
-   results return via `workflow_run` webhooks.
-3. **PR feedback agent** — respond to maintainer reviews with code changes.
-4. **Pluggable routing** — the router is a pure `event → dispatch` function
+   results return via `workflow_run` webhooks. Until then, `fix pending` is
+   reached only via preview releases, so fixes either open a PR directly
+   (`autoPrOnFix`) or land as a pushed branch + `needs triage`.
+2. **PR feedback agent** — respond to maintainer reviews with code changes.
+3. **Pluggable routing** — the router is a pure `event → dispatch` function
    precisely so a markdown-configured LLM router can slot in later.

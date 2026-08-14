@@ -16,6 +16,7 @@ export const issueDetailsSchema = v.object({
 	state: v.string(),
 	url: v.string(),
 	author: v.object({ login: v.string() }),
+	authorAssociation: v.string(),
 	labels: v.array(v.string()),
 	createdAt: v.string(),
 	comments: v.array(
@@ -54,6 +55,7 @@ export async function fetchIssueDetails(
 		state: issue.data.state,
 		url: issue.data.html_url,
 		author: { login: issue.data.user?.login ?? '' },
+		authorAssociation: issue.data.author_association,
 		labels: issue.data.labels.map((label) => (typeof label === 'string' ? label : (label.name ?? ''))),
 		createdAt: issue.data.created_at,
 		comments: comments.map((comment) => ({
@@ -69,6 +71,22 @@ export async function fetchIssueDetails(
 export interface RepoLabel {
 	name: string;
 	description: string | null;
+}
+
+/**
+ * Split repository labels into the priority and package sets used for issue
+ * classification. The patterns follow Astro's conventions (`- P1`…, `pkg:`);
+ * they'll move into repository configuration when another convention needs
+ * them.
+ */
+export function partitionClassificationLabels(labels: RepoLabel[]): {
+	priorityLabels: RepoLabel[];
+	packageLabels: RepoLabel[];
+} {
+	return {
+		priorityLabels: labels.filter((label) => /^- P\d/.test(label.name)),
+		packageLabels: labels.filter((label) => label.name.startsWith('pkg:')),
+	};
 }
 
 export async function fetchRepoLabels(

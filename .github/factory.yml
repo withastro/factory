@@ -1,0 +1,7 @@
+# Factory configuration for this repository (the guinea pig).
+# Triage runs with all defaults: the bundled skill, default labels,
+# and no auto-PR (fixes wait for reporter confirmation).
+version: 1
+
+triage:
+  enabled: true
