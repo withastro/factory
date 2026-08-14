@@ -11,8 +11,13 @@ import {
 	reviewWorkflowParamsSchema,
 } from '../review/contracts.ts';
 import { matchesReviewTrigger } from '../review/setup.ts';
-import { routeDelivery, type ReviewIntentParams } from '../router.ts';
+import {
+	routeDelivery,
+	type ReviewIntentParams,
+	type SetupIntentParams,
+} from '../router.ts';
 import { triageCoordinatorKey } from '../triage/contracts.ts';
+import { ensureRepositoryLabels } from '../triage/install.ts';
 
 export const githubChannel = createGitHubChannel<AppHonoEnv>({
 	webhookSecret: requiredProcessEnv('GITHUB_WEBHOOK_SECRET'),
@@ -35,9 +40,36 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 				const admission = await coordinator.enqueue(dispatch.params);
 				return Response.json({ accepted: true, capability: 'triage', ...admission });
 			}
+			case 'setup': {
+				// Label creation is best-effort and can outlive the webhook
+				// response; a failed repo just gets its labels lazily later.
+				c.executionCtx.waitUntil(setupRepositories(c.env, dispatch.params));
+				return Response.json({
+					accepted: true,
+					capability: 'setup',
+					repositories: dispatch.params.repositories.length,
+				});
+			}
 		}
 	},
 });
+
+async function setupRepositories(
+	env: AppHonoEnv['Bindings'],
+	params: SetupIntentParams,
+): Promise<void> {
+	const client = await createInstallationClient(
+		credentialsFromWorkerEnv(env),
+		params.installationId,
+	);
+	for (const target of params.repositories) {
+		try {
+			await ensureRepositoryLabels(client, target.owner, target.repo);
+		} catch (error) {
+			console.error(`Label setup failed for ${target.owner}/${target.repo}:`, error);
+		}
+	}
+}
 
 async function dispatchReview(
 	env: AppHonoEnv['Bindings'],
