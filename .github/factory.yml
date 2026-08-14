@@ -3,5 +3,10 @@
 # and no auto-PR (fixes wait for reporter confirmation).
 version: 1
 
+review:
+  trigger:
+    label: ai-review
+  skill: .agents/skills/factory-review
+
 triage:
   enabled: true
