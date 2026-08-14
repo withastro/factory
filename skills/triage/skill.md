@@ -18,7 +18,7 @@ You need either:
 - `issueTitle` and `issueBody` provided in args (preferred — use these directly as the bug report), OR
 - A GitHub issue number or URL mentioned in the conversation (use `gh issue view` to fetch details)
 
-If a `triageDir` is provided in args, use that as the working directory for the triage. Otherwise, default to `triage/gh-<issue_number>` (if you have an issue number) or `triage/current`.
+If a `triageDir` is provided in args, use exactly that path as the working directory for every step — do not substitute your own, and do not drift to a different directory partway through. Only if none was provided, use `/triage/gh-<issue_number>`, or `/triage/current` when you have no issue number. `triageDir` always lives outside the repository checkout.
 
 ## Step 1: Reproduce
 
