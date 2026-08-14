@@ -16,6 +16,11 @@ review:
   severity: [blocker, advisory]
   areas: [correctness, tests]
 `;
+const DEFAULT_SKILL_CONFIG = `version: 1
+review:
+  trigger:
+    label: astro-review
+`;
 const SKILL = `---
 name: astro-review
 description: Reviews an Astro pull request.
@@ -129,6 +134,44 @@ describe('review setup', () => {
 		for (const [request] of getContent.mock.calls) {
 			expect(request).toMatchObject({ ref: CONFIGURATION_SHA });
 		}
+	});
+
+	it('uses the bundled review skill when no repository override is configured', async () => {
+		const { client, getContent } = createClient(
+			[{ name: 'astro-review' }],
+			[REPOSITORY_CONFIG_PATHS[0]],
+			DEFAULT_SKILL_CONFIG,
+		);
+
+		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({
+			outcome: 'ready',
+			agentInput: {
+				skill: {
+					name: 'review',
+					directory: '.agents/skills/review',
+					files: {
+						'SKILL.md': expect.stringContaining('# Code Review'),
+						LICENSE: expect.stringContaining('MIT License'),
+					},
+				},
+			},
+		});
+		expect(getContent).toHaveBeenCalledTimes(1);
+		expect(getContent).not.toHaveBeenCalledWith(
+			expect.objectContaining({ path: expect.stringContaining('.agents/skills/') }),
+		);
+	});
+
+	it('does not fall back when a configured repository override cannot be loaded', async () => {
+		const { client } = createClient(
+			[{ name: 'astro-review' }],
+			[REPOSITORY_CONFIG_PATHS[0]],
+			`${DEFAULT_SKILL_CONFIG}  skill: .agents/skills/missing-review\n`,
+		);
+
+		await expect(loadReviewSetup(client, trigger())).rejects.toThrow(
+			'Unexpected path: .agents/skills/missing-review',
+		);
 	});
 
 	it('falls back to the .yaml configuration extension', async () => {

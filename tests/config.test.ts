@@ -39,6 +39,24 @@ review:
 		});
 	});
 
+	it('uses the bundled review skill when no override is configured', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+review:
+  trigger:
+    label: ai-review
+`),
+		).toMatchObject({
+			review: {
+				trigger: { label: 'ai-review' },
+				skill: undefined,
+				severity: [...DEFAULT_SEVERITIES],
+				areas: [...DEFAULT_AREAS],
+			},
+		});
+	});
+
 	it('accepts project-defined severity and area vocabularies', () => {
 		expect(
 			parseFactoryConfig(`
