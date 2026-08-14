@@ -35,7 +35,7 @@ export { shellQuote, triageSandboxId };
 export const REPO_DIR = '/repo';
 
 /** Directories the pipeline writes that must never be committed or pushed. */
-const GIT_EXCLUDES = ['/triage/', '/preview-release.json'];
+const GIT_EXCLUDES = ['/triage/'];
 
 type TriageSandbox = Sandbox<unknown>;
 
