@@ -153,6 +153,64 @@ describe('webhook dispatch router', () => {
 		expect(dispatch).toMatchObject({ kind: 'review', params: { pullNumber: 789 } });
 	});
 
+	it('routes installation.created to setup with the repository list', () => {
+		const dispatch = routeDelivery(
+			'installation',
+			{
+				action: 'created',
+				installation,
+				repositories: [
+					{ full_name: 'withastro/factory' },
+					{ full_name: 'withastro/compiler-rs' },
+					{ full_name: 'malformed' },
+				],
+			},
+			'delivery-8',
+		);
+		expect(dispatch).toEqual({
+			kind: 'setup',
+			params: {
+				installationId: 123,
+				repositories: [
+					{ owner: 'withastro', repo: 'factory' },
+					{ owner: 'withastro', repo: 'compiler-rs' },
+				],
+			},
+		});
+	});
+
+	it('routes installation_repositories.added to setup', () => {
+		const dispatch = routeDelivery(
+			'installation_repositories',
+			{
+				action: 'added',
+				installation,
+				repositories_added: [{ full_name: 'withastro/starlight' }],
+			},
+			'delivery-9',
+		);
+		expect(dispatch).toEqual({
+			kind: 'setup',
+			params: {
+				installationId: 123,
+				repositories: [{ owner: 'withastro', repo: 'starlight' }],
+			},
+		});
+	});
+
+	it('ignores installation removals and suspensions', () => {
+		expect(
+			routeDelivery('installation', { action: 'deleted', installation }, 'd').kind,
+		).toBe('none');
+		expect(
+			routeDelivery(
+				'installation_repositories',
+				{ action: 'removed', installation },
+				'd',
+			).kind,
+		).toBe('none');
+	});
+
 	it('ignores unhandled events and actions', () => {
 		expect(
 			routeDelivery('issues', { action: 'labeled', installation, repository }, 'd').kind,

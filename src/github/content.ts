@@ -9,9 +9,15 @@ export async function readRepositoryFile(
 	owner: string,
 	repo: string,
 	path: string,
-	ref: string,
+	/** Omit to read from the repository's default branch. */
+	ref?: string,
 ): Promise<string> {
-	const response = await client.rest.repos.getContent({ owner, repo, path, ref });
+	const response = await client.rest.repos.getContent({
+		owner,
+		repo,
+		path,
+		...(ref ? { ref } : {}),
+	});
 	if (Array.isArray(response.data) || response.data.type !== 'file' || !('content' in response.data)) {
 		throw new Error(`${path} must be a file.`);
 	}

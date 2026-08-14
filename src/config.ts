@@ -130,14 +130,14 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 }
 
 /**
- * Load `.github/factory.yml` at the given ref. Returns the all-defaults
- * configuration when neither config path exists.
+ * Load `.github/factory.yml` at the given ref (default branch when omitted).
+ * Returns the all-defaults configuration when neither config path exists.
  */
 export async function loadFactoryConfig(
 	client: InstallationClient,
 	owner: string,
 	repo: string,
-	ref: string,
+	ref?: string,
 ): Promise<{ config: FactoryConfig; explicit: boolean }> {
 	for (const path of REPOSITORY_CONFIG_PATHS) {
 		try {

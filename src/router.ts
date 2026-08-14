@@ -13,6 +13,9 @@
  *                                        pull request or written by a bot
  *                                        (bot filtering prevents self-trigger
  *                                        loops)
+ * - `installation.created` /
+ *   `installation_repositories.added` → setup (create the triage label
+ *                                        vocabulary in each new repository)
  */
 
 import type { TriageWorkflowParams } from './triage/contracts.ts';
@@ -30,9 +33,15 @@ export interface ReviewIntentParams {
 	headSha: string;
 }
 
+export interface SetupIntentParams {
+	installationId: number;
+	repositories: Array<{ owner: string; repo: string }>;
+}
+
 export type Dispatch =
 	| { kind: 'review'; params: ReviewIntentParams }
 	| { kind: 'triage'; params: TriageWorkflowParams }
+	| { kind: 'setup'; params: SetupIntentParams }
 	| { kind: 'none'; reason: string };
 
 interface WebhookRepository {
@@ -60,6 +69,8 @@ interface WebhookPayload {
 	comment?: {
 		user?: { login?: string; type?: string };
 	};
+	repositories?: Array<{ full_name?: string }>;
+	repositories_added?: Array<{ full_name?: string }>;
 }
 
 export function routeDelivery(
@@ -67,13 +78,32 @@ export function routeDelivery(
 	payload: WebhookPayload,
 	deliveryId: string,
 ): Dispatch {
-	const repository = payload.repository;
-	if (!repository) {
-		return { kind: 'none', reason: 'The delivery has no repository.' };
-	}
 	const installationId = payload.installation?.id;
 	if (!installationId) {
 		return { kind: 'none', reason: 'The delivery has no installation.' };
+	}
+
+	// Installation events carry a repository list instead of a repository.
+	if (eventName === 'installation' || eventName === 'installation_repositories') {
+		const relevant =
+			eventName === 'installation'
+				? payload.action === 'created'
+				: payload.action === 'added';
+		if (!relevant) {
+			return { kind: 'none', reason: `Unhandled ${eventName} action: ${payload.action}.` };
+		}
+		const entries =
+			(eventName === 'installation' ? payload.repositories : payload.repositories_added) ?? [];
+		const repositories = entries.flatMap((entry) => {
+			const [owner, repo] = (entry.full_name ?? '').split('/');
+			return owner && repo ? [{ owner, repo }] : [];
+		});
+		return { kind: 'setup', params: { installationId, repositories } };
+	}
+
+	const repository = payload.repository;
+	if (!repository) {
+		return { kind: 'none', reason: 'The delivery has no repository.' };
 	}
 
 	const base = {
