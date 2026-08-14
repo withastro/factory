@@ -3,6 +3,8 @@
 	"name": "factory",
 	"compatibility_date": "2026-08-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
 	"secrets": {
 		"required": ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET"]
 	},
