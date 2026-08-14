@@ -1,0 +1,245 @@
+/**
+ * Issue, label, comment, branch, and pull request helpers used by the triage
+ * capability. All functions take an installation-scoped Octokit client; the
+ * caller decides which installation it acts for.
+ */
+
+import * as v from 'valibot';
+import type { LabelAppearance } from '../triage/labels.ts';
+import type { InstallationClient } from './client.ts';
+import { isGitHubStatus } from './content.ts';
+
+export const issueDetailsSchema = v.object({
+	number: v.number(),
+	title: v.string(),
+	body: v.string(),
+	state: v.string(),
+	url: v.string(),
+	author: v.object({ login: v.string() }),
+	labels: v.array(v.string()),
+	createdAt: v.string(),
+	comments: v.array(
+		v.object({
+			author: v.object({ login: v.string() }),
+			authorIsBot: v.boolean(),
+			authorAssociation: v.string(),
+			body: v.string(),
+			createdAt: v.string(),
+		}),
+	),
+});
+export type IssueDetails = v.InferOutput<typeof issueDetailsSchema>;
+export type IssueComment = IssueDetails['comments'][number];
+
+export async function fetchIssueDetails(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+): Promise<IssueDetails> {
+	const [issue, comments] = await Promise.all([
+		client.rest.issues.get({ owner, repo, issue_number: issueNumber }),
+		client.paginate(client.rest.issues.listComments, {
+			owner,
+			repo,
+			issue_number: issueNumber,
+			per_page: 100,
+		}),
+	]);
+
+	return v.parse(issueDetailsSchema, {
+		number: issue.data.number,
+		title: issue.data.title,
+		body: issue.data.body ?? '',
+		state: issue.data.state,
+		url: issue.data.html_url,
+		author: { login: issue.data.user?.login ?? '' },
+		labels: issue.data.labels.map((label) => (typeof label === 'string' ? label : (label.name ?? ''))),
+		createdAt: issue.data.created_at,
+		comments: comments.map((comment) => ({
+			author: { login: comment.user?.login ?? '' },
+			authorIsBot: comment.user?.type === 'Bot',
+			authorAssociation: comment.author_association,
+			body: comment.body ?? '',
+			createdAt: comment.created_at,
+		})),
+	});
+}
+
+export interface RepoLabel {
+	name: string;
+	description: string | null;
+}
+
+export async function fetchRepoLabels(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+): Promise<RepoLabel[]> {
+	const labels = await client.paginate(client.rest.issues.listLabelsForRepo, {
+		owner,
+		repo,
+		per_page: 100,
+	});
+	return labels.map((label) => ({ name: label.name, description: label.description ?? null }));
+}
+
+/**
+ * Create a label in the repository if it doesn't exist yet, so installing the
+ * factory on a fresh repository needs no manual label setup.
+ */
+export async function ensureLabelExists(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	name: string,
+	appearance?: LabelAppearance,
+): Promise<void> {
+	try {
+		await client.rest.issues.getLabel({ owner, repo, name });
+		return;
+	} catch (error) {
+		if (!isGitHubStatus(error, 404)) throw error;
+	}
+	try {
+		await client.rest.issues.createLabel({
+			owner,
+			repo,
+			name,
+			color: appearance?.color,
+			description: appearance?.description,
+		});
+	} catch (error) {
+		// Another concurrent run may have created it first.
+		if (!isGitHubStatus(error, 422)) throw error;
+	}
+}
+
+export async function addIssueLabels(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	labels: string[],
+): Promise<void> {
+	if (labels.length === 0) return;
+	await client.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels });
+}
+
+export async function removeLabelIfPresent(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	label: string,
+): Promise<void> {
+	try {
+		await client.rest.issues.removeLabel({ owner, repo, issue_number: issueNumber, name: label });
+	} catch (error) {
+		if (!isGitHubStatus(error, 404)) throw error;
+	}
+}
+
+/**
+ * Swap one triage label for another: remove the old one (if present) and add
+ * the new one. Not atomic; the coordinator serializes runs per issue so only
+ * one swap is in flight at a time.
+ */
+export async function swapIssueLabel(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	oldLabel: string | null,
+	newLabel: string,
+): Promise<void> {
+	if (oldLabel && oldLabel !== newLabel) {
+		await removeLabelIfPresent(client, owner, repo, issueNumber, oldLabel);
+	}
+	await addIssueLabels(client, owner, repo, issueNumber, [newLabel]);
+}
+
+export async function postIssueComment(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	body: string,
+): Promise<void> {
+	await client.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body });
+}
+
+export interface PullRequestRef {
+	number: number;
+	url: string;
+}
+
+export async function createPullRequest(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	options: { head: string; base: string; title: string; body: string },
+): Promise<PullRequestRef> {
+	const response = await client.rest.pulls.create({
+		owner,
+		repo,
+		head: options.head,
+		base: options.base,
+		title: options.title,
+		body: options.body,
+	});
+	return { number: response.data.number, url: response.data.html_url };
+}
+
+export async function findOpenPullRequest(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	branch: string,
+): Promise<PullRequestRef | null> {
+	const response = await client.rest.pulls.list({
+		owner,
+		repo,
+		head: `${owner}:${branch}`,
+		state: 'open',
+		per_page: 1,
+	});
+	const pull = response.data[0];
+	return pull ? { number: pull.number, url: pull.html_url } : null;
+}
+
+/** Return the first branch from `candidates` that exists in the repository. */
+export async function findExistingBranch(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	candidates: string[],
+): Promise<string | null> {
+	for (const branch of candidates) {
+		const response = await client.rest.git.listMatchingRefs({
+			owner,
+			repo,
+			ref: `heads/${branch}`,
+		});
+		if (response.data.some((entry) => entry.ref === `refs/heads/${branch}`)) {
+			return branch;
+		}
+	}
+	return null;
+}
+
+export async function deleteBranchIfPresent(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	branch: string,
+): Promise<boolean> {
+	try {
+		await client.rest.git.deleteRef({ owner, repo, ref: `heads/${branch}` });
+		return true;
+	} catch (error) {
+		// 422 = the ref doesn't exist, which is fine.
+		if (isGitHubStatus(error, 422) || isGitHubStatus(error, 404)) return false;
+		throw error;
+	}
+}

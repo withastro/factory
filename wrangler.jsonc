@@ -1,0 +1,58 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "factory",
+	"compatibility_date": "2026-08-10",
+	"compatibility_flags": ["nodejs_compat"],
+	"secrets": {
+		"required": ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET"]
+	},
+	"ai": {
+		"binding": "AI"
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "REVIEW_COORDINATOR",
+				"class_name": "ReviewCoordinator"
+			},
+			{
+				"name": "TRIAGE_COORDINATOR",
+				"class_name": "TriageCoordinator"
+			}
+		]
+	},
+	"workflows": [
+		{
+			"name": "factory-review",
+			"binding": "REVIEW_WORKFLOW",
+			"class_name": "ReviewWorkflow"
+		},
+		{
+			"name": "factory-triage",
+			"binding": "TRIAGE_WORKFLOW",
+			"class_name": "TriageWorkflow"
+		}
+	],
+	"observability": {
+		"enabled": true,
+		"traces": {
+			"enabled": true
+		},
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		}
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"FluePullRequestReviewerAgent",
+				"FlueFixVerifierAgent",
+				"FlueRetriageJudgeAgent",
+				"ReviewCoordinator",
+				"TriageCoordinator"
+			]
+		}
+	]
+}
