@@ -22,7 +22,8 @@ GitHub webhooks ─→ Hono ingress (signature verification)
 
 - **Router** (`src/router.ts`): deterministic and pure. `pull_request.labeled`
   → review; `issues.opened|reopened|closed` and human `issue_comment.created`
-  → triage. Bot comments and private repositories are dropped at the door.
+  → triage. Bot comments are dropped at the door to prevent self-trigger
+  loops.
 - **Coordinators** (`src/coordination/queue-coordinator.ts`): a Durable Object
   per entity serializes work — one active workflow, one pending (newest wins),
   delivery-id dedupe, and a reconcile alarm for self-healing. This replaces
@@ -113,8 +114,12 @@ text; it's seeded into the sandbox as `SKILL.md`.)
   `GITHUB_APP_PRIVATE_KEY` (PKCS#8 — convert with
   `openssl pkcs8 -topk8 -nocrypt`), `GITHUB_WEBHOOK_SECRET`.
 
-Public repositories only for now; private-repository deliveries are
-acknowledged and ignored.
+Public and private repositories are both supported. Public repositories get
+an anonymous blobless clone (the triage sandbox holds no credentials at all);
+private repositories get a full single-branch clone authenticated with a
+short-lived contents-read token passed as a one-shot git header — never
+persisted to git config — after which the origin remote is removed, so the
+agent still runs credential-free.
 
 ## Development
 

@@ -13,7 +13,6 @@
  *                                        pull request or written by a bot
  *                                        (bot filtering prevents self-trigger
  *                                        loops)
- * - private repositories              → ignored (not supported yet)
  */
 
 import type { TriageWorkflowParams } from './triage/contracts.ts';
@@ -72,9 +71,6 @@ export function routeDelivery(
 	if (!repository) {
 		return { kind: 'none', reason: 'The delivery has no repository.' };
 	}
-	if (repository.private) {
-		return { kind: 'none', reason: 'Private repositories are not supported.' };
-	}
 	const installationId = payload.installation?.id;
 	if (!installationId) {
 		return { kind: 'none', reason: 'The delivery has no installation.' };
@@ -122,6 +118,7 @@ export function routeDelivery(
 				issueNumber: payload.issue.number,
 				defaultBranch: repository.default_branch,
 				issueAction: action,
+				repoIsPrivate: repository.private,
 			},
 		};
 	}
@@ -148,6 +145,7 @@ export function routeDelivery(
 				defaultBranch: repository.default_branch,
 				issueAction: 'comment',
 				commentAuthor: payload.comment?.user?.login,
+				repoIsPrivate: repository.private,
 			},
 		};
 	}

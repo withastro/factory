@@ -38,5 +38,7 @@ export function tail(value: string, max = 2_000): string {
 }
 
 export function redactToken(value: string): string {
-	return value.replace(/x-access-token:[^@\s]+/g, 'x-access-token:***');
+	return value
+		.replace(/x-access-token:[^@\s]+/g, 'x-access-token:***')
+		.replace(/(authorization:\s*basic\s+)[A-Za-z0-9+/=]+/gi, '$1***');
 }
