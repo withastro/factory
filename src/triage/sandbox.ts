@@ -25,16 +25,21 @@ import {
 	assertGitRef,
 	assertRepoIdentifier,
 	redactToken,
+	REPO_DIR,
 	shellQuote,
 	tail,
 	triageSandboxId,
+	TRIAGE_DIR,
 } from './sandbox-utils.ts';
 
-export { shellQuote, triageSandboxId };
+export { REPO_DIR, shellQuote, triageSandboxId, TRIAGE_DIR };
 
-export const REPO_DIR = '/repo';
-
-/** Directories the pipeline writes that must never be committed or pushed. */
+/**
+ * Directories the pipeline writes that must never be committed or pushed.
+ *
+ * Scratch now lives outside the checkout, so this is belt-and-braces for an
+ * agent that writes `triage/` inside the repo anyway.
+ */
 const GIT_EXCLUDES = ['/triage/'];
 
 type TriageSandbox = Sandbox<unknown>;
@@ -80,7 +85,12 @@ export async function setupTriageWorkspace(
 	assertGitRef(setup.defaultBranch);
 	assertGitRef(setup.fixBranch);
 
-	await execOrThrow(sandbox, 'prepare', `rm -rf ${REPO_DIR} && mkdir -p ${REPO_DIR}`, 30);
+	await execOrThrow(
+		sandbox,
+		'prepare',
+		`rm -rf ${REPO_DIR} ${TRIAGE_DIR} && mkdir -p ${REPO_DIR} ${TRIAGE_DIR}`,
+		30,
+	);
 
 	// Public: blobless single-branch clone — full history for git blame/diff,
 	// blobs fetched anonymously on demand.
