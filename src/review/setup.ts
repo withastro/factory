@@ -7,9 +7,16 @@
 
 import { loadFactoryConfig, REPOSITORY_CONFIG_PATHS, type ReviewConfig } from '../config.ts';
 import type { InstallationClient } from '../github/client.ts';
+import { ensureLabelExists } from '../github/issues.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
+import type { LabelAppearance } from '../triage/labels.ts';
 import type { ReviewAgentInput, ReviewWorkflowParams } from './contracts.ts';
 import { defaultReviewSkill } from './default-skill.ts';
+
+const REVIEW_TRIGGER_LABEL_APPEARANCE: LabelAppearance = {
+	color: '5319e7',
+	description: 'Trigger an automated code review when added to a pull request.',
+};
 
 export type ReviewSetup =
 	| { outcome: 'ignored'; reason: string }
@@ -59,6 +66,14 @@ export async function loadReviewSetup(
 	if (!labels.includes(config.trigger.label)) {
 		return { outcome: 'stale', reason: 'The trigger label was removed before review started.' };
 	}
+
+	await ensureLabelExists(
+		client,
+		trigger.owner,
+		trigger.repo,
+		config.trigger.label,
+		REVIEW_TRIGGER_LABEL_APPEARANCE,
+	);
 
 	const skill = config.skill
 		? await readSkillSnapshot(
