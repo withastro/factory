@@ -52,6 +52,7 @@ function createClient(
 	labels: Array<{ name: string }> = [{ name: 'astro-review' }],
 	configPaths: readonly string[] = [REPOSITORY_CONFIG_PATHS[0]],
 	config: string = CONFIG,
+	{ labelExists = true }: { labelExists?: boolean } = {},
 ) {
 	const getContent = vi.fn(async ({ path }: { path: string }) => {
 		if (configPaths.includes(path)) {
@@ -74,6 +75,13 @@ function createClient(
 		}
 		throw new Error(`Unexpected path: ${path}`);
 	});
+	const getLabel = vi.fn(async ({ name }: { name: string }) => {
+		if (labelExists) {
+			return { data: { name } };
+		}
+		throw Object.assign(new Error('Not found'), { status: 404 });
+	});
+	const createLabel = vi.fn(async () => ({ data: { name: 'astro-review' } }));
 	const client = {
 		rest: {
 			pulls: {
@@ -88,6 +96,7 @@ function createClient(
 				})),
 			},
 			repos: { getContent },
+			issues: { getLabel, createLabel },
 			git: {
 				getBlob: vi.fn(async () => ({
 					data: { content: encode(SKILL), encoding: 'base64' },
@@ -95,7 +104,7 @@ function createClient(
 			},
 		},
 	} as unknown as InstallationClient;
-	return { client, getContent };
+	return { client, getContent, getLabel, createLabel };
 }
 
 describe('review setup', () => {
@@ -160,6 +169,38 @@ describe('review setup', () => {
 		expect(getContent).not.toHaveBeenCalledWith(
 			expect.objectContaining({ path: expect.stringContaining('.agents/skills/') }),
 		);
+	});
+
+	it('creates the review trigger label when it is missing from the repository', async () => {
+		const { client, createLabel } = createClient(
+			[{ name: 'astro-review' }],
+			[REPOSITORY_CONFIG_PATHS[0]],
+			DEFAULT_SKILL_CONFIG,
+			{ labelExists: false },
+		);
+
+		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({ outcome: 'ready' });
+		expect(createLabel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				owner: 'withastro',
+				repo: 'astro',
+				name: 'astro-review',
+				color: expect.any(String),
+				description: expect.any(String),
+			}),
+		);
+	});
+
+	it('does not try to create the review trigger label when it already exists', async () => {
+		const { client, createLabel } = createClient(
+			[{ name: 'astro-review' }],
+			[REPOSITORY_CONFIG_PATHS[0]],
+			DEFAULT_SKILL_CONFIG,
+			{ labelExists: true },
+		);
+
+		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({ outcome: 'ready' });
+		expect(createLabel).not.toHaveBeenCalled();
 	});
 
 	it('does not fall back when a configured repository override cannot be loaded', async () => {
