@@ -5,7 +5,7 @@ import {
 } from 'cloudflare:workers';
 import { init } from '@flue/runtime';
 import * as v from 'valibot';
-import { loadFactoryConfig, type TriageConfig } from '../config.ts';
+import { loadFactoryConfig, type PreviewReleaseConfig, type TriageConfig } from '../config.ts';
 import type { WorkerEnv } from '../env.ts';
 import {
 	createInstallationClient,
@@ -23,6 +23,7 @@ import {
 	fetchRepoLabels,
 	findExistingBranch,
 	findOpenPullRequest,
+	getBranchHeadSha,
 	partitionClassificationLabels,
 	postIssueComment,
 	swapIssueLabel,
@@ -70,6 +71,12 @@ import {
 	reproduceStepPrompt,
 	verifyStepPrompt,
 } from './prompts.ts';
+import {
+	dispatchPreviewRelease,
+	findPreviewReleaseCheck,
+	formatPreviewReleaseSection,
+	parsePreviewReleasePayload,
+} from './preview-release.ts';
 import { resolveTriageLabel } from './resolve-label.ts';
 import {
 	commitAndPush,
@@ -88,6 +95,33 @@ const STEP_RETRIES = {
 
 const MAX_COMMENT_BODY = 4_000;
 const MAX_CONVERSATION_ENTRIES = 50;
+
+/**
+ * Preview releases are polled rather than awaited through a `workflow_run`
+ * webhook: polling keeps the whole capability inside this one durable workflow
+ * instance, with no cross-instance event correlation to get wrong. Sleeping
+ * between polls is durable and costs no compute.
+ */
+const PREVIEW_POLL_ATTEMPTS = 30;
+const PREVIEW_POLL_INTERVAL = '1 minute';
+
+interface PreviewReleaseOutcome {
+	available: boolean;
+	/** Pre-rendered install instructions, or null when there is no preview. */
+	section: string | null;
+	detail: string;
+}
+
+/**
+ * Splice the install instructions above the collapsible report, falling back to
+ * appending when the generated comment doesn't contain one.
+ */
+function insertPreviewSection(comment: string, section: string | null): string {
+	if (!section) return comment;
+	const marker = comment.indexOf('<details>');
+	if (marker === -1) return `${comment}\n\n${section}`;
+	return `${comment.slice(0, marker)}${section}\n\n${comment.slice(marker)}`;
+}
 
 interface ConversationEntry {
 	author: string;
@@ -275,6 +309,21 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		): Promise<v.InferOutput<S>> =>
 			runPipelineStep(step, agent, agentInput, params, name, prompt, channel, schema, readTimeout);
 
+		// Released as soon as the last container-backed step is done rather than
+		// only on the way out, so a long external wait doesn't idle a sandbox.
+		let sandboxReleased = false;
+		const releaseSandbox = async () => {
+			if (sandboxReleased) return;
+			sandboxReleased = true;
+			await step.do(
+				'destroy sandbox',
+				{ retries: { limit: 1, delay: '5 seconds', backoff: 'constant' }, timeout: '2 minutes' },
+				async () => {
+					await destroyTriageSandbox(sandbox());
+				},
+			);
+		};
+
 		try {
 			await step.do(
 				'provision sandbox workspace',
@@ -428,7 +477,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				}
 			}
 
-			// ----- comment, state label, classification labels -----
+			// ----- comment and classification content (needs the sandbox) -----
 
 			const repoLabels = await step.do('fetch repository labels', STEP_RETRIES, async () => {
 				const api = await client();
@@ -442,23 +491,62 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					issueNumber: params.issueNumber,
 					branchName: pushed.pushed ? branch : null,
 					priorityLabels: repoLabels.priorityLabels,
-					// Preview releases arrive with the workflow_dispatch milestone.
-					previewReleaseUrls: null,
 				}),
 				'comment',
 				commentResultSchema,
 				'20 minutes',
 			);
 
+			const chosenLabels: string[] = [];
+			if (
+				result.reproducible &&
+				(repoLabels.priorityLabels.length > 0 || repoLabels.packageLabels.length > 0)
+			) {
+				const selection = await pipelineStep(
+					'label-selection',
+					labelSelectionPrompt(repoLabels.priorityLabels, repoLabels.packageLabels),
+					'labels',
+					labelSelectionSchema,
+					'10 minutes',
+				);
+				const priorityNames = new Set(repoLabels.priorityLabels.map((label) => label.name));
+				const packageNames = new Set(repoLabels.packageLabels.map((label) => label.name));
+				chosenLabels.push(
+					...(selection.priority && priorityNames.has(selection.priority)
+						? [selection.priority]
+						: []),
+					...selection.packages.filter((name) => packageNames.has(name)).slice(0, 3),
+				);
+			}
+
+			// No container work left, and a preview release can sit in the
+			// repository's CI for half an hour.
+			await releaseSandbox();
+
+			// ----- preview release for the reporter to test -----
+
+			// Pointless once a pull request exists: that path is already
+			// "fix verified" and a maintainer owns it from here.
+			const preview =
+				result.fixed && pushed.pushed && pullRequest === null
+					? await this.publishPreviewRelease(step, client, params, triage, branch)
+					: { available: false, section: null, detail: 'not applicable' };
+
+			// ----- comment, state label, classification labels -----
+
 			const newLabel = resolveTriageLabel(result, triage.labels, {
-				previewReleaseAvailable: false,
+				previewReleaseAvailable: preview.available,
 				prOpened: pullRequest !== null,
 			});
 			await step.do('post comment and swap state label', STEP_RETRIES, async () => {
 				const api = await client();
-				const comment = pullRequest
-					? `${generated.comment}\n\nI've opened a pull request with this fix: ${pullRequest.url}`
-					: generated.comment;
+				// The install instructions are spliced in here rather than
+				// generated, so the comment and `newLabel` can never disagree
+				// about whether a preview exists.
+				let comment = insertPreviewSection(generated.comment, preview.section);
+				if (pullRequest) {
+					comment += `\n\nI've opened a pull request with this fix: ${pullRequest.url}`;
+				}
 				await postIssueComment(api, params.owner, params.repo, params.issueNumber, comment);
 				await ensureLabelExists(
 					api,
@@ -477,31 +565,11 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				);
 			});
 
-			if (
-				result.reproducible &&
-				(repoLabels.priorityLabels.length > 0 || repoLabels.packageLabels.length > 0)
-			) {
-				const selection = await pipelineStep(
-					'label-selection',
-					labelSelectionPrompt(repoLabels.priorityLabels, repoLabels.packageLabels),
-					'labels',
-					labelSelectionSchema,
-					'10 minutes',
-				);
-				const priorityNames = new Set(repoLabels.priorityLabels.map((label) => label.name));
-				const packageNames = new Set(repoLabels.packageLabels.map((label) => label.name));
-				const chosen = [
-					...(selection.priority && priorityNames.has(selection.priority)
-						? [selection.priority]
-						: []),
-					...selection.packages.filter((name) => packageNames.has(name)).slice(0, 3),
-				];
-				if (chosen.length > 0) {
-					await step.do('apply classification labels', STEP_RETRIES, async () => {
-						const api = await client();
-						await addIssueLabels(api, params.owner, params.repo, params.issueNumber, chosen);
-					});
-				}
+			if (chosenLabels.length > 0) {
+				await step.do('apply classification labels', STEP_RETRIES, async () => {
+					const api = await client();
+					await addIssueLabels(api, params.owner, params.repo, params.issueNumber, chosenLabels);
+				});
 			}
 
 			return {
@@ -511,13 +579,128 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				pullRequestUrl: pullRequest?.url ?? null,
 			};
 		} finally {
-			await step.do(
-				'destroy sandbox',
-				{ retries: { limit: 1, delay: '5 seconds', backoff: 'constant' }, timeout: '2 minutes' },
-				async () => {
-					await destroyTriageSandbox(sandbox());
-				},
-			);
+			await releaseSandbox();
+		}
+	}
+
+	// ---------- Preview releases ----------
+
+	/**
+	 * Ask the repository's own CI to publish an installable build of the fix
+	 * branch, then wait for the result.
+	 *
+	 * A preview release is an enhancement to a triage run that already
+	 * succeeded, so every failure mode here — unconfigured, undispatchable, a
+	 * failing build, a malformed report, or a timeout — degrades to "no
+	 * preview" instead of failing triage. The issue then lands in `needsTriage`
+	 * exactly as it does for repositories with no preview workflow at all.
+	 */
+	private async publishPreviewRelease(
+		step: WorkflowStep,
+		client: () => Promise<InstallationClient>,
+		params: TriageWorkflowParams,
+		triage: TriageConfig,
+		branch: string,
+	): Promise<PreviewReleaseOutcome> {
+		const preview = triage.previewRelease;
+		if (!preview) return { available: false, section: null, detail: 'not configured' };
+
+		const outcome = await this.runPreviewRelease(step, client, params, preview, branch);
+		// The whole point of the feature is invisible in the issue timeline when
+		// it doesn't work out, so leave a breadcrumb.
+		console.log(
+			JSON.stringify({
+				event: 'preview_release',
+				repo: `${params.owner}/${params.repo}`,
+				issue: params.issueNumber,
+				branch,
+				available: outcome.available,
+				detail: outcome.detail,
+			}),
+		);
+		return outcome;
+	}
+
+	private async runPreviewRelease(
+		step: WorkflowStep,
+		client: () => Promise<InstallationClient>,
+		params: TriageWorkflowParams,
+		preview: PreviewReleaseConfig,
+		branch: string,
+	): Promise<PreviewReleaseOutcome> {
+		try {
+			// Results are reported against the exact commit that was pushed, so
+			// a later push can never be mistaken for this run's preview.
+			const headSha = await step.do('resolve fix branch head', STEP_RETRIES, async () => {
+				const api = await client();
+				return getBranchHeadSha(api, params.owner, params.repo, branch);
+			});
+			if (!headSha) {
+				return { available: false, section: null, detail: 'the fix branch has no head commit' };
+			}
+
+			const dispatch = await step.do('dispatch preview release', STEP_RETRIES, async () => {
+				const api = await client();
+				return dispatchPreviewRelease(api, {
+					owner: params.owner,
+					repo: params.repo,
+					workflow: preview.workflow,
+					// The workflow definition comes from maintainer-controlled
+					// content; only the branch to build is agent-authored.
+					ref: params.defaultBranch,
+					branch,
+					issueNumber: params.issueNumber,
+				});
+			});
+			if (!dispatch.dispatched) {
+				return { available: false, section: null, detail: dispatch.detail };
+			}
+
+			for (let attempt = 1; attempt <= PREVIEW_POLL_ATTEMPTS; attempt += 1) {
+				await step.sleep(`await preview release ${attempt}`, PREVIEW_POLL_INTERVAL);
+				const check = await step.do(
+					`read preview release check ${attempt}`,
+					STEP_RETRIES,
+					async () => {
+						const api = await client();
+						return findPreviewReleaseCheck(api, params.owner, params.repo, headSha, {
+							checkName: preview.checkName,
+							appSlug: preview.checkApp,
+						});
+					},
+				);
+
+				if (!check || check.status !== 'completed') continue;
+				if (check.conclusion !== 'success') {
+					return {
+						available: false,
+						section: null,
+						detail: `the preview release ${check.conclusion ?? 'did not succeed'}`,
+					};
+				}
+
+				const packages = parsePreviewReleasePayload(check.summary, preview.allowedHosts);
+				if (packages.length === 0) {
+					return {
+						available: false,
+						section: null,
+						detail: 'the preview release reported no usable packages',
+					};
+				}
+				return {
+					available: true,
+					section: formatPreviewReleaseSection(packages),
+					detail: `published ${packages.length} package(s)`,
+				};
+			}
+
+			return { available: false, section: null, detail: 'the preview release timed out' };
+		} catch (error) {
+			return {
+				available: false,
+				section: null,
+				detail: error instanceof Error ? error.message : String(error),
+			};
 		}
 	}
 

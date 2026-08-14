@@ -246,6 +246,22 @@ export async function findExistingBranch(
 	return null;
 }
 
+/** Head commit SHA of a branch, or null when the branch doesn't exist. */
+export async function getBranchHeadSha(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	branch: string,
+): Promise<string | null> {
+	try {
+		const response = await client.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+		return response.data.object.sha;
+	} catch (error) {
+		if (isGitHubStatus(error, 404)) return null;
+		throw error;
+	}
+}
+
 export async function deleteBranchIfPresent(
 	client: InstallationClient,
 	owner: string,
