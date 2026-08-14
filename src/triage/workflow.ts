@@ -280,12 +280,21 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				'provision sandbox workspace',
 				{ retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' }, timeout: '20 minutes' },
 				async () => {
+					// Private repositories need an authenticated clone. The token
+					// is contents-read, exists only inside this step, and is used
+					// as a one-shot header that git never persists.
+					const cloneToken = params.repoIsPrivate
+						? await createScopedInstallationToken(credentials, params.installationId, {
+								contents: 'read',
+							})
+						: undefined;
 					await setupTriageWorkspace(sandbox(), {
 						owner: params.owner,
 						repo: params.repo,
 						defaultBranch: params.defaultBranch,
 						fixBranch: branch,
 						skill,
+						cloneToken,
 					});
 				},
 			);

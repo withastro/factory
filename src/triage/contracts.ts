@@ -17,6 +17,8 @@ export const triageWorkflowParamsSchema = v.object({
 	defaultBranch: nonEmptyString,
 	issueAction: v.picklist(['opened', 'reopened', 'closed', 'comment']),
 	commentAuthor: v.optional(v.string()),
+	/** Private repositories get an authenticated, self-contained clone. */
+	repoIsPrivate: v.optional(v.boolean(), false),
 });
 
 export type TriageWorkflowParams = v.InferOutput<typeof triageWorkflowParamsSchema>;
