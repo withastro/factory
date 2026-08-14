@@ -158,7 +158,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 				message: {
 					kind: 'signal',
 					type: 'github.pull_request.review-requested',
-					body: 'Run the configured repository review skill for this pull request.',
+					body: 'Run the resolved review skill for this pull request.',
 					attributes: {
 						deliveryId: trigger.deliveryId,
 						headSha: trigger.headSha,

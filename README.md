@@ -41,10 +41,11 @@ GitHub webhooks ─→ Hono ingress (signature verification)
 ### Review (`src/review/`)
 
 Adding the configured trigger label to a pull request runs the
-repository-owned review skill and publishes validated findings as a PR review
-(inline comments anchored against the real diff, the rest in the body, always
-with an LLM disclosure). Config and skill are read at the target branch's tip
-SHA captured at webhook time — never from the PR head.
+bundled review skill, or a repository-provided override, and publishes
+validated findings as a PR review (inline comments anchored against the real
+diff, the rest in the body, always with an LLM disclosure). Repository config
+and skill overrides are read at the target branch's tip SHA captured at webhook
+time — never from the PR head.
 
 ### Triage (`src/triage/`)
 
@@ -84,7 +85,7 @@ version: 1
 review:
   trigger:
     label: ai-review
-  skill: .agents/skills/astro-review   # repository-owned, required for review
+  # skill: .agents/skills/astro-review # overrides the bundled default skill
   # severity: [critical, high, medium, low]
   # areas: [correctness, security, ...]
 
@@ -97,8 +98,9 @@ triage:
 ```
 
 Skills resolve as **bundled default, repository override wins**: the factory
-ships a generic triage skill (`skills/triage/`); a repository can replace it
-by committing `.agents/skills/triage/` and pointing `triage.skill` at it.
+ships generic review and triage skills (`skills/review/` and `skills/triage/`);
+a repository can replace either one by committing a skill under
+`.agents/skills/` and pointing the capability's `skill` setting at it.
 (The bundled entry file is stored as `skill.md` — Flue's vite plugin treats
 imports literally named `SKILL.md` as packaged skills, and we need the raw
 text; it's seeded into the sandbox as `SKILL.md`.)
