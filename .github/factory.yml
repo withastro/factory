@@ -1,6 +1,10 @@
 # Factory configuration for this repository (the guinea pig).
-# Triage runs with all defaults: the bundled skill, default labels,
-# and no auto-PR (fixes wait for reporter confirmation).
+# Triage runs with the bundled skill and default labels.
+#
+# autoPrOnFix is on because this repository publishes no packages, so it can't
+# produce a preview release for a reporter to confirm. Without it a fix would
+# land as a pushed branch labelled "needs triage" — a re-triageable state, so
+# the next comment could force-push over the fix.
 version: 1
 
 review:
@@ -10,3 +14,4 @@ review:
 
 triage:
   enabled: true
+  autoPrOnFix: true
