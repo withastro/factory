@@ -9,6 +9,17 @@
 	"ai": {
 		"binding": "AI"
 	},
+	"vars": {
+		"SANDBOX_TRANSPORT": "rpc"
+	},
+	"containers": [
+		{
+			"class_name": "Sandbox",
+			"image": "./Dockerfile",
+			"max_instances": 5,
+			"instance_type": "standard-2"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{
@@ -18,6 +29,10 @@
 			{
 				"name": "TRIAGE_COORDINATOR",
 				"class_name": "TriageCoordinator"
+			},
+			{
+				"name": "TRIAGE_SANDBOX",
+				"class_name": "Sandbox"
 			}
 		]
 	},
@@ -53,6 +68,10 @@
 				"ReviewCoordinator",
 				"TriageCoordinator"
 			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["FlueTriagePipelineAgent", "Sandbox"]
 		}
 	]
 }

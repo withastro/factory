@@ -41,7 +41,13 @@ export type TriageWorkflowOutcome =
 	| { outcome: 'ignored'; reason: string }
 	| { outcome: 'skipped'; reason: string }
 	| { outcome: 'cleaned-up'; deletedBranch: string | null }
-	| { outcome: 'pipeline-pending'; reason: string }
+	| {
+			outcome: 'triaged';
+			label: string;
+			branchPushed: boolean;
+			pullRequestUrl: string | null;
+	  }
+	| { outcome: 'failed'; reason: string }
 	| { outcome: 'fix-rejected' }
 	| { outcome: 'fix-inconclusive'; reason: string }
 	| { outcome: 'fix-verified'; pullRequestUrl: string }

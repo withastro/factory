@@ -15,6 +15,7 @@ function issueWith(commentBodies: string[]): IssueDetails {
 		state: 'open',
 		url: 'https://github.com/withastro/astro/issues/1',
 		author: { login: 'reporter' },
+		authorAssociation: 'NONE',
 		labels: [],
 		createdAt: '2026-01-01T00:00:00Z',
 		comments: commentBodies.map((body) => ({

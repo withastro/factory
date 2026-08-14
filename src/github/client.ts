@@ -32,6 +32,24 @@ export async function createInstallationClient(
 	return app.getInstallationOctokit(installationId);
 }
 
+/**
+ * Mint a short-lived installation token scoped down to the given permissions.
+ * Used when a raw token string must leave trusted code briefly (e.g. one git
+ * push command); never request more scope than that single use needs.
+ */
+export async function createScopedInstallationToken(
+	credentials: GitHubCredentials,
+	installationId: number,
+	permissions: { contents?: 'read' | 'write'; issues?: 'read' | 'write'; metadata?: 'read' },
+): Promise<string> {
+	const app = new App({ appId: credentials.appId, privateKey: credentials.privateKey });
+	const response = await app.octokit.rest.apps.createInstallationAccessToken({
+		installation_id: installationId,
+		permissions,
+	});
+	return response.data.token;
+}
+
 export function requiredProcessEnv(name: string): string {
 	return requiredValue(name, process.env[name]);
 }

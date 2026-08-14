@@ -3,6 +3,7 @@
  * how wrangler binds the Durable Object and Workflow classes.
  */
 
+export { Sandbox } from '@cloudflare/sandbox';
 export { ReviewCoordinator } from './review/coordinator.ts';
 export { ReviewWorkflow } from './review/workflow.ts';
 export { TriageCoordinator } from './triage/coordinator.ts';
