@@ -8,7 +8,7 @@ Reproduce a GitHub issue to determine if a bug is valid and reproducible.
 
 ## Prerequisites
 
-- **`triageDir`** — Directory containing the reproduction project (e.g. `triage/issue-123`). If not passed as an arg, default to `triage/gh-<issue_number>`.
+- **`triageDir`** — Directory containing the reproduction project. Always use the absolute path you were given (e.g. `/triage/gh-123`). It is deliberately outside the repository checkout; never place it inside the checkout, and never assume a default if one was provided.
 - **`issueDetails`** — The GitHub API issue details payload.
 
 ## Overview
@@ -68,12 +68,27 @@ Skip if a maintainer (check `authorAssociation` for `MEMBER`, `COLLABORATOR`, or
 
 Set up the reproduction in the `triageDir` directory.
 
+**Never run `rm -rf` against the repository checkout or anything inside it.** The
+checkout is where your fix gets committed from; deleting any part of it — above
+all its `.git` directory — throws away the entire run. Destructive commands
+belong inside `triageDir` only, and only with a path you have verified.
+
+### The Issue Is About This Repository Itself
+
+Most common case. Do **not** clone anything — the checkout you are already in
+*is* the code under test. Build and test it in place, and use `triageDir` only
+for scratch files and `report.md`.
+
 ### From a GitHub URL
 
+For a reporter's separate reproduction repository:
+
 ```bash
-git clone https://github.com/<owner>/<repo>.git <triageDir>
-rm -rf <triageDir>/.git
+git clone --depth 1 https://github.com/<owner>/<repo>.git <triageDir>/repro
 ```
+
+Leave the clone's `.git` alone. It sits outside the checkout, so it cannot
+confuse the orchestrator's git state.
 
 ### From a StackBlitz URL
 
