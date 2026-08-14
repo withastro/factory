@@ -1,209 +1,135 @@
-# Astro Review
+# Factory
 
-Astro Review is a GitHub App that runs repository-owned review instructions with
-[Flue](https://flueframework.com/) and Cloudflare Workers AI. Adding a configured
-label to a pull request starts a durable review and publishes validated findings
-as a GitHub pull request review.
+A software factory: one Cloudflare Worker that receives GitHub webhooks and
+routes them through a deterministic dispatcher to durable
+[Flue](https://flueframework.com/) agents. Each capability (triage, review,
+and more to come) is a folder of workflows, coordinators, and agents; adding a
+capability means adding a folder and a routing rule.
 
-The initial release supports public repositories only. Events for private
-repositories are acknowledged but ignored.
+Built by combining [withastro/astro-review](https://github.com/withastro/astro-review)
+(absorbed nearly as-is — it already had this architecture) and
+[withastro/triagebot-action](https://github.com/withastro/triagebot-action)
+(ported from GitHub Actions to Workers).
 
-## How it works
+## Architecture
 
-1. GitHub sends a signed `pull_request.labeled` webhook.
-2. A Durable Object keyed by repository and pull request starts one Workflow at
-   a time and coalesces additional triggers into one pending review.
-3. The Workflow loads `.github/astro-review.yml` or
-   `.github/astro-review.yaml` and the configured skill from the pull request's
-   target branch at the immutable SHA captured during webhook processing.
-4. For a matching trigger, the Workflow removes the label, creates an
-   `in_progress` GitHub Check Run, and starts a Flue agent with read-only GitHub
-   tools and `@cf/moonshotai/kimi-k2.7-code` on Workers AI.
-5. The Workflow validates every proposed inline location against GitHub's diff,
-   verifies that the pull request is still open at the reviewed head SHA, and
-   publishes a `COMMENT` review without requiring the label to remain present.
-6. The Check Run is completed with a `success` conclusion. It currently reports
-   Workflow activity only; findings and Workflow errors do not fail the check.
-
-The model has no GitHub credentials or write tools. Only application code can
-publish a review. A GitHub delivery ID is used for Workflow and publication
-deduplication. While a review is active, re-adding the trigger label queues one
-more review; subsequent triggers replace that pending review with the latest one.
-
-## Requirements
-
-- Node.js 22.19 or newer
-- pnpm 10
-- A Cloudflare account with Workers AI, Workflows, and Durable Objects access
-- A GitHub App
-
-## Deploy with Workers Builds
-
-Connect this repository before creating the GitHub App so its webhook can use the
-deployed Worker URL:
-
-1. In the Cloudflare dashboard, open **Workers & Pages** and select
-   **Create application**.
-2. Select **Get started** next to **Import a repository**, connect the GitHub
-   account, and select this repository.
-3. Configure the project with these settings:
-
-| Setting | Value |
-| --- | --- |
-| Worker name | `astro-review` |
-| Production branch | `main` |
-| Root directory | Leave blank (repository root) |
-| Build command | `pnpm run build` |
-| Deploy command | `pnpm exec wrangler deploy` |
-| Non-production branch deploy command | `pnpm exec wrangler versions upload` |
-
-The Worker name must match the `name` in `wrangler.jsonc`. Workers Builds installs
-dependencies and creates its deployment API token automatically. Select **Save
-and Deploy**, then record the generated `workers.dev` URL. Subsequent pushes to
-`main` build and deploy automatically; other branches upload preview versions.
-
-The health endpoint is available at `https://<worker-host>/health`.
-
-## GitHub App
-
-Create a GitHub App after the initial Worker deployment with these settings:
-
-- Webhook URL: `https://<worker-host>/channels/github/webhook`
-- Webhook content type: `application/json`
-- Webhook secret: a new random secret
-- Repository permission `Contents`: Read-only
-- Repository permission `Checks`: Read and write
-- Repository permission `Pull requests`: Read and write
-- Subscribe to the `Pull request` event
-
-When adding the Checks permission to an existing GitHub App, approve the new
-permission for each existing installation before deploying this version.
-
-Generate a private key and note the App ID. If the downloaded key begins with
-`-----BEGIN RSA PRIVATE KEY-----`, convert it from PKCS#1 to unencrypted PKCS#8:
-
-```sh
-openssl pkcs8 -topk8 -nocrypt \
-  -in github-app-private-key.pem \
-  -out github-app-private-key.pkcs8.pem
+```
+GitHub webhooks ─→ Hono ingress (signature verification)
+                    └→ router.ts (pure rule table: event → capability dispatch)
+                        ├→ ReviewCoordinator DO (one per PR)  ─→ ReviewWorkflow ─→ PullRequestReviewer agent
+                        └→ TriageCoordinator DO (one per issue) ─→ TriageWorkflow ─→ FixVerifier / RetriageJudge agents
 ```
 
-The converted file must begin with `-----BEGIN PRIVATE KEY-----`. In the
-Cloudflare dashboard, open the Worker's **Settings > Variables & Secrets** and
-add these as encrypted runtime secrets:
+- **Router** (`src/router.ts`): deterministic and pure. `pull_request.labeled`
+  → review; `issues.opened|reopened|closed` and human `issue_comment.created`
+  → triage. Bot comments and private repositories are dropped at the door.
+- **Coordinators** (`src/coordination/queue-coordinator.ts`): a Durable Object
+  per entity serializes work — one active workflow, one pending (newest wins),
+  delivery-id dedupe, and a reconcile alarm for self-healing. This replaces
+  GitHub Actions' `concurrency` groups.
+- **Workflows**: every side effect is a checkpointed, retried step. The triage
+  workflow re-reads issue labels when it runs and routes through the FSM
+  (`src/triage/fsm.ts`), so queued events always act on fresh state.
+- **Agents**: Flue agents on Workers AI (Kimi) via the `AI` binding — no model
+  API keys. The reviewer gets read-only GitHub tools; the triage classifiers
+  get no tools at all, only the conversation text. Only trusted workflow code
+  writes to GitHub.
 
-- `GITHUB_APP_ID`
-- `GITHUB_APP_PRIVATE_KEY`
-- `GITHUB_WEBHOOK_SECRET`
+## Capabilities
 
-Prefer uploading the private key directly from the file to preserve its PEM
-formatting and deploy the resulting secret version automatically:
+### Review (`src/review/`)
 
-```sh
-pnpm exec wrangler secret put GITHUB_APP_PRIVATE_KEY \
-  < github-app-private-key.pkcs8.pem
-```
+Adding the configured trigger label to a pull request runs the
+repository-owned review skill and publishes validated findings as a PR review
+(inline comments anchored against the real diff, the rest in the body, always
+with an LLM disclosure). Config and skill are read at the target branch's tip
+SHA captured at webhook time — never from the PR head.
 
-Build variables are not available to the running Worker, so do not add these under
-Workers Builds settings. Install the GitHub App only on public repositories that
-should be reviewed.
+### Triage (`src/triage/`)
 
-### Manual deployment
+A label-driven state machine over issues, with all state living in GitHub
+labels (visible, maintainer-overridable):
 
-If Workers Builds is not used, install dependencies, authenticate Wrangler, add
-the same secrets, and deploy from the repository root:
+- Issue opened/reopened → triage pipeline (reproduce → diagnose → verify →
+  fix). **The sandboxed pipeline is the next milestone; today these runs
+  settle as `pipeline-pending` without touching the issue.**
+- Comment on `triage: fix pending` → the FixVerifier agent classifies the
+  reporter's response: confirmed → open the fix PR + `fix verified`;
+  rejected → `fix rejected`.
+- Comment on a re-triageable label → the RetriageJudge agent decides whether
+  new actionable information warrants a re-run.
+- Issue closed → the fix branch is deleted.
+- Unexpected failures post a marked comment; three strikes parks the issue in
+  `triage: failed` until a maintainer clears it.
 
-```sh
-pnpm install
-pnpm exec wrangler login
-pnpm exec wrangler secret put GITHUB_APP_ID
-pnpm exec wrangler secret put GITHUB_APP_PRIVATE_KEY
-pnpm exec wrangler secret put GITHUB_WEBHOOK_SECRET
-pnpm run deploy
-```
+Missing labels are created automatically with sensible colors, so installing
+on a fresh repository requires no setup.
 
-For local development, copy the names and value format from `.dev.vars.example`
-into `.dev.vars`, then run:
+## Repository configuration
 
-```sh
-pnpm run dev
-```
-
-GitHub must be able to reach the local webhook URL, so use a tunnel when testing
-live deliveries.
-
-## Repository setup
-
-Commit `.github/astro-review.yml` or `.github/astro-review.yaml` to the target
-repository's base branch. If both exist, `.yml` takes precedence:
+Target repositories may add `.github/factory.yml` (all sections optional; no
+file at all means triage-on with defaults and review off). Configuration is
+always read from maintainer-controlled content.
 
 ```yaml
 version: 1
-trigger:
-  label: astro-review
+
 review:
-  skill: .agents/skills/astro-review
-  severity: [critical, high, medium, low]
-  areas:
-    - design
-    - correctness
-    - security
-    - runtime
-    - completeness
-    - error-handling
-    - tests
-    - maintainability
-    - documentation
-    - changeset
+  trigger:
+    label: ai-review
+  skill: .agents/skills/astro-review   # repository-owned, required for review
+  # severity: [critical, high, medium, low]
+  # areas: [correctness, security, ...]
+
+triage:
+  # enabled: true
+  # autoPrOnFix: false
+  # skill: .agents/skills/triage       # overrides the bundled default skill
+  # labels:
+  #   fixPending: awaiting-confirmation
 ```
 
-Create the configured skill at `.agents/skills/astro-review/SKILL.md`:
+Skills resolve as **bundled default, repository override wins**: the factory
+ships a generic triage skill (`skills/triage/`); a repository can replace it
+by committing `.agents/skills/triage/` and pointing `triage.skill` at it.
 
-```md
----
-name: astro-review
-description: Review Astro pull requests for correctness and regressions.
----
+## GitHub App setup
 
-# Review instructions
+- **Permissions**: Contents (read/write), Issues (read/write), Pull requests
+  (read/write), Checks (read/write).
+- **Events**: Pull request, Issues, Issue comment. (Workflow run will be added
+  for preview releases.)
+- **Webhook URL**: `https://<worker>/channels/github/webhook`.
+- **Secrets** (`wrangler secret put` / `.dev.vars`): `GITHUB_APP_ID`,
+  `GITHUB_APP_PRIVATE_KEY` (PKCS#8 — convert with
+  `openssl pkcs8 -topk8 -nocrypt`), `GITHUB_WEBHOOK_SECRET`.
 
-Inspect the changed files and report only actionable correctness, security, or
-performance issues introduced by the pull request.
-```
-
-Skill directories must match `.agents/skills/<skill-name>`. A skill may contain
-at most 32 UTF-8 text files and 256 KiB in total. Its frontmatter `name` must
-match the directory name. `review.severity` and `review.areas` define the only
-classification values the agent may submit. Both must be non-empty arrays of
-unique names; omitting them uses the values shown above. The configuration is
-the allowed vocabulary, while the skill defines how the agent should assess,
-weight, and map findings to those values.
-
-Configuration and skill files are read from an immutable snapshot of the current
-target branch, never from the pull request's unreviewed head. Changes to either
-file in a pull request therefore take effect only after they reach the target
-branch.
-
-## Triggering reviews
-
-Add the exact configured label to an open pull request. The app removes the label
-when review work starts. Re-adding it while a review is active queues one more
-review; later triggers replace that pending review. The head commit must not
-change while its review is running.
-
-The app publishes at most 20 inline comments per review. Duplicate locations,
-locations absent from GitHub's available patch, and excess findings are retained
-in the review body instead of being discarded. The application renders each
-finding as `` `[severity][area]`: message ``. Skills control the finding content
-and classification guidance, but cannot override this GitHub presentation format.
+Public repositories only for now; private-repository deliveries are
+acknowledged and ignored.
 
 ## Development
 
 ```sh
-pnpm run check:types
-pnpm test
-pnpm run build
+pnpm install
+pnpm dev          # local dev (vite + workerd)
+pnpm test         # vitest
+pnpm check:types  # tsc
+pnpm deploy       # vite build && wrangler deploy
 ```
 
-`pnpm run cf-typegen` refreshes `worker-configuration.d.ts` after changing
-Cloudflare bindings. That generated file is intentionally ignored by Git.
+`vite build` is mandatory before deploy: the Flue vite plugin compiles each
+`'use agent'` module into a Durable Object class and generates the merged
+wrangler config. Never hand-author `FLUE_*` bindings; do declare migrations
+for generated classes (see `wrangler.jsonc`).
+
+## Roadmap
+
+1. **Sandboxed triage pipeline** — Cloudflare Sandbox containers running the
+   reproduce/diagnose/verify/fix skill steps against a real checkout
+   (hardened staged clone; write token never enters the sandbox).
+2. **Preview releases** — a repo-side `workflow_dispatch` Action the factory
+   triggers after pushing a fix branch (`pkg-pr-new` needs Actions OIDC);
+   results return via `workflow_run` webhooks.
+3. **PR feedback agent** — respond to maintainer reviews with code changes.
+4. **Pluggable routing** — the router is a pure `event → dispatch` function
+   precisely so a markdown-configured LLM router can slot in later.
