@@ -115,6 +115,68 @@ triage:
 		);
 	});
 
+	it('parses an opt-in preview release workflow with the default check name', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+triage:
+  previewRelease:
+    workflow: factory-preview.yml
+`).triage.previewRelease,
+		).toEqual({
+			workflow: 'factory-preview.yml',
+			checkName: 'factory/preview-release',
+			checkApp: 'github-actions',
+			allowedHosts: ['pkg.pr.new'],
+		});
+	});
+
+	it('normalizes the workflow path a maintainer is most likely to write', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+triage:
+  previewRelease:
+    workflow: .github/workflows/factory-preview.yml
+`).triage.previewRelease?.workflow,
+		).toBe('factory-preview.yml');
+	});
+
+	it('lets a repository override the check name, app, and trusted hosts', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+triage:
+  previewRelease:
+    workflow: preview.yaml
+    check: ci/preview
+    checkApp: buildkite
+    allowedHosts:
+      - previews.corp.test
+`).triage.previewRelease,
+		).toEqual({
+			workflow: 'preview.yaml',
+			checkName: 'ci/preview',
+			checkApp: 'buildkite',
+			allowedHosts: ['previews.corp.test'],
+		});
+	});
+
+	it('leaves preview releases off when the section is absent', () => {
+		expect(parseFactoryConfig('version: 1\ntriage:\n  enabled: true').triage.previewRelease).toBe(
+			undefined,
+		);
+	});
+
+	it.each(['../secrets.yml', 'nested/dir/preview.yml', 'preview.txt', 'preview'])(
+		'rejects an unsafe or unsupported preview workflow: %s',
+		(workflow) => {
+			expect(() =>
+				parseFactoryConfig(`version: 1\ntriage:\n  previewRelease:\n    workflow: ${workflow}\n`),
+			).toThrow();
+		},
+	);
+
 	it('validates the triage skill override path', () => {
 		expect(
 			parseFactoryConfig('version: 1\ntriage:\n  skill: .agents/skills/triage').triage.skill,

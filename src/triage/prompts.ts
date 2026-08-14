@@ -42,7 +42,6 @@ export interface CommentPromptOptions {
 	issueNumber: number;
 	branchName: string | null;
 	priorityLabels: RepoLabel[];
-	previewReleaseUrls: string[] | null;
 }
 
 export function commentStepPrompt(options: CommentPromptOptions): string {
@@ -86,18 +85,7 @@ The comment must start with an at-a-glance summary, followed by short explanatio
 
 **[See Fix Instructions above.]** [1-2 sentences describing the fix in more detail.]
 
-${
-	options.previewReleaseUrls?.length
-		? `### Try this fix
-
-You can test this fix right now without waiting for a release:
-
-${options.previewReleaseUrls.map((url) => `npm i ${url}`).join('\n')}
-
-If this fixes your issue, please leave a comment letting us know (e.g. "confirmed, this fixes it"). We'll then open a pull request to get this merged.
-`
-		: ''
-}<details>
+<details>
 <summary><em>Full Triage Report</em></summary>
 
 [Include the full contents of report.md here, formatted for readability]
@@ -112,7 +100,6 @@ _This report was made by an LLM. The analysis may be wrong, and the potential fi
 - **Issue:** #${options.issueNumber}
 - **Branch:** ${options.branchName ?? '(none)'}
 - **Repo:** ${options.repo}
-- **Preview Release:** ${options.previewReleaseUrls?.join(', ') ?? '(none)'}
 
 ### Available Priority Labels
 ${formatLabelList(options.priorityLabels)}
