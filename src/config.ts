@@ -15,6 +15,11 @@ import type { InstallationClient } from './github/client.ts';
 import { isGitHubStatus, readRepositoryFile } from './github/content.ts';
 import { validateSkillDirectory } from './github/skill.ts';
 import { DEFAULT_TRIAGE_LABELS, type TriageLabelConfig } from './triage/labels.ts';
+import {
+	DEFAULT_PREVIEW_CHECK_APP,
+	DEFAULT_PREVIEW_CHECK_NAME,
+	DEFAULT_PREVIEW_HOSTS,
+} from './triage/preview-release.ts';
 
 export const REPOSITORY_CONFIG_PATHS = ['.github/factory.yml', '.github/factory.yaml'] as const;
 
@@ -66,6 +71,39 @@ const factoryConfigSchema = v.object({
 			enabled: v.optional(v.boolean()),
 			autoPrOnFix: v.optional(v.boolean()),
 			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+			previewRelease: v.optional(
+				v.object({
+					workflow: v.pipe(
+						v.string(),
+						v.trim(),
+						v.minLength(1),
+						v.maxLength(200),
+						// The dispatch API wants a bare filename, but writing the path
+						// you'd see in the repository is the obvious mistake to make.
+						v.transform((value) => value.replace(/^\.github\/workflows\//, '')),
+						v.regex(/^[A-Za-z0-9._-]+\.ya?ml$/),
+					),
+					check: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100))),
+					checkApp: v.optional(
+						v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100)),
+					),
+					allowedHosts: v.optional(
+						v.pipe(
+							v.array(
+								v.pipe(
+									v.string(),
+									v.trim(),
+									v.minLength(1),
+									v.maxLength(253),
+									v.regex(/^[A-Za-z0-9.-]+$/),
+								),
+							),
+							v.minLength(1),
+							v.maxLength(10),
+						),
+					),
+				}),
+			),
 			labels: v.optional(v.partial(v.object(labelConfigShape()))),
 		}),
 	),
@@ -85,11 +123,30 @@ export interface ReviewConfig {
 	areas: string[];
 }
 
+/**
+ * Opt-in preview releases. `workflow` is a maintainer-owned
+ * `workflow_dispatch` workflow file in `.github/workflows`; `checkName` is the
+ * check run that workflow publishes its results to.
+ *
+ * `checkApp` and `allowedHosts` are the trust boundary for the reported
+ * results: the check must come from the expected app, and the URLs it reports
+ * must live on an expected host, because the workflow producing them has run
+ * agent-authored build scripts.
+ */
+export interface PreviewReleaseConfig {
+	workflow: string;
+	checkName: string;
+	checkApp: string;
+	allowedHosts: string[];
+}
+
 export interface TriageConfig {
 	enabled: boolean;
 	autoPrOnFix: boolean;
 	/** Repository skill override; the bundled default skill is used when absent. */
 	skill: string | undefined;
+	/** Absent means the repository publishes no preview releases. */
+	previewRelease: PreviewReleaseConfig | undefined;
 	labels: TriageLabelConfig;
 }
 
@@ -106,6 +163,7 @@ export function defaultFactoryConfig(): FactoryConfig {
 			enabled: true,
 			autoPrOnFix: false,
 			skill: undefined,
+			previewRelease: undefined,
 			labels: { ...DEFAULT_TRIAGE_LABELS },
 		},
 	};
@@ -128,6 +186,16 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 			enabled: config.triage?.enabled ?? true,
 			autoPrOnFix: config.triage?.autoPrOnFix ?? false,
 			skill: config.triage?.skill ? validateSkillDirectory(config.triage.skill) : undefined,
+			previewRelease: config.triage?.previewRelease
+				? {
+						workflow: config.triage.previewRelease.workflow,
+						checkName: config.triage.previewRelease.check ?? DEFAULT_PREVIEW_CHECK_NAME,
+						checkApp: config.triage.previewRelease.checkApp ?? DEFAULT_PREVIEW_CHECK_APP,
+						allowedHosts: config.triage.previewRelease.allowedHosts ?? [
+							...DEFAULT_PREVIEW_HOSTS,
+						],
+					}
+				: undefined,
 			labels: { ...DEFAULT_TRIAGE_LABELS, ...config.triage?.labels },
 		},
 	};
