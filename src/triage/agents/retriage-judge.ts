@@ -10,7 +10,6 @@ import {
 	useTool,
 } from '@flue/runtime';
 import { Bash, InMemoryFs } from 'just-bash';
-import { VERIFICATION_MODEL } from '../../models.ts';
 import {
 	retriageDecisionSchema,
 	retriageJudgeInputSchema,
@@ -23,8 +22,8 @@ import {
  * reads the conversation it is given; it has no GitHub access.
  */
 export function RetriageJudge() {
-	useModel(VERIFICATION_MODEL);
 	const input = useInitialData<RetriageJudgeInput>();
+	useModel(input.model);
 
 	useSandbox(bash(() => new Bash({ fs: new InMemoryFs() })));
 

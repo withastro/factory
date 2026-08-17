@@ -31,10 +31,12 @@ GitHub webhooks ─→ Hono ingress (signature verification)
 - **Workflows**: every side effect is a checkpointed, retried step. The triage
   workflow re-reads issue labels when it runs and routes through the FSM
   (`src/triage/fsm.ts`), so queued events always act on fresh state.
-- **Agents**: Flue agents on Workers AI (Kimi) via the `AI` binding — no model
-  API keys. The reviewer gets read-only GitHub tools; the triage classifiers
-  get no tools at all, only the conversation text. Only trusted workflow code
-  writes to GitHub.
+- **Agents**: Flue agents, defaulting to Workers AI (Kimi) via the `AI`
+  binding, which needs no credentials. Repositories can name a different model
+  per capability, including Anthropic models called directly (see
+  [Models](#models)). The reviewer gets read-only GitHub tools; the triage
+  classifiers get no tools at all, only the conversation text. Only trusted
+  workflow code writes to GitHub.
 
 ## Capabilities
 
@@ -87,6 +89,7 @@ review:
   trigger:
     label: ai-review
   # skill: .agents/skills/astro-review # overrides the bundled default skill
+  # model: anthropic/claude-opus-4-6   # overrides the built-in reviewer model
   # severity: [critical, high, medium, low]
   # areas: [correctness, security, ...]
 
@@ -94,6 +97,8 @@ triage:
   # enabled: true
   # autoPrOnFix: false
   # skill: .agents/skills/triage       # overrides the bundled default skill
+  # model: anthropic/claude-opus-4-6   # reproduce/diagnose/fix pipeline
+  # verificationModel: anthropic/claude-haiku-4-5 # fix + retriage classifiers
   # previewRelease:
   #   workflow: factory-preview.yml    # opt in to preview releases
   #   check: factory/preview-release   # check run the workflow reports to
@@ -110,6 +115,37 @@ a repository can replace either one by committing a skill under
 (The bundled entry file is stored as `skill.md` — Flue's vite plugin treats
 imports literally named `SKILL.md` as packaged skills, and we need the raw
 text; it's seeded into the sandbox as `SKILL.md`.)
+
+## Models
+
+A model is named as `<provider>/<model>`. Two providers are bundled:
+
+- `cloudflare/…` runs on **Workers AI** through the Worker's `AI` binding and
+  needs no credentials. Model ids carry their own slashes
+  (`cloudflare/@cf/moonshotai/kimi-k2.7-code`); only the first segment is the
+  provider.
+- `anthropic/…` calls the **Anthropic API** directly — no AI Gateway in the
+  path — and requires the `ANTHROPIC_API_KEY` secret on the Worker. The key
+  belongs to the factory operator, not to target repositories; agent code never
+  sees it, because the Flue runtime resolves credentials from the environment.
+
+Three models are configurable, each defaulting to a Workers AI model so an
+unconfigured repository keeps working with no API key:
+
+| Setting | Used by | Default |
+| --- | --- | --- |
+| `review.model` | the pull request reviewer | `CODE_MODEL` |
+| `triage.model` | the reproduce/diagnose/fix pipeline | `CODE_MODEL` |
+| `triage.verificationModel` | fix verification and retriage decisions | `VERIFICATION_MODEL` |
+
+Defaults live in `src/models.ts`. The verification agents only classify
+conversation text and hold no tools, so they do not need a coding model.
+
+Providers are bundled at build time by the `providers` array in
+`flue.config.ts`, and `MODEL_PROVIDERS` in `src/models.ts` mirrors it. A model
+naming any other provider is rejected when the configuration is parsed, rather
+than failing at the first model call partway through an agent run — so adding a
+provider means changing both places.
 
 ## Preview releases
 
@@ -168,7 +204,8 @@ Three deliberate design choices:
 - **Webhook URL**: `https://<worker>/channels/github/webhook`.
 - **Secrets** (`wrangler secret put` / `.dev.vars`): `GITHUB_APP_ID`,
   `GITHUB_APP_PRIVATE_KEY` (PKCS#8 — convert with
-  `openssl pkcs8 -topk8 -nocrypt`), `GITHUB_WEBHOOK_SECRET`.
+  `openssl pkcs8 -topk8 -nocrypt`), `GITHUB_WEBHOOK_SECRET`. Add
+  `ANTHROPIC_API_KEY` only if a repository configures an `anthropic/…` model.
 
 Public and private repositories are both supported. Public repositories get
 an anonymous blobless clone (the triage sandbox holds no credentials at all);

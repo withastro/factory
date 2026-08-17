@@ -35,6 +35,7 @@ export const reviewAgentInputSchema = v.object({
 	title: v.string(),
 	body: v.string(),
 	triggerLabel: nonEmptyString,
+	model: nonEmptyString,
 	severities: v.pipe(v.array(nonEmptyString), v.minLength(1), v.maxLength(50)),
 	areas: v.pipe(v.array(nonEmptyString), v.minLength(1), v.maxLength(50)),
 	skill: skillSnapshotSchema,

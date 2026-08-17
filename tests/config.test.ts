@@ -11,6 +11,7 @@ import {
 	MAX_SKILL_BYTES,
 	validateSkillDirectory,
 } from '../src/github/skill.ts';
+import { CODE_MODEL, VERIFICATION_MODEL } from '../src/models.ts';
 import { DEFAULT_TRIAGE_LABELS } from '../src/triage/labels.ts';
 
 describe('factory configuration', () => {
@@ -27,6 +28,7 @@ review:
 			review: {
 				trigger: { label: 'ai-review' },
 				skill: '.agents/skills/astro-review',
+				model: CODE_MODEL,
 				severity: [...DEFAULT_SEVERITIES],
 				areas: [...DEFAULT_AREAS],
 			},
@@ -34,6 +36,9 @@ review:
 				enabled: true,
 				autoPrOnFix: false,
 				skill: undefined,
+				model: CODE_MODEL,
+				verificationModel: VERIFICATION_MODEL,
+				previewRelease: undefined,
 				labels: { ...DEFAULT_TRIAGE_LABELS },
 			},
 		});
@@ -188,6 +193,51 @@ triage:
 
 	it('rejects unknown versions', () => {
 		expect(() => parseFactoryConfig('version: 2')).toThrow();
+	});
+
+	it('lets a repository choose a model per capability', () => {
+		const config = parseFactoryConfig(`
+version: 1
+review:
+  trigger:
+    label: ai-review
+  model: anthropic/claude-opus-4-6
+triage:
+  model: anthropic/claude-opus-4-6
+  verificationModel: anthropic/claude-haiku-4-5
+`);
+		expect(config.review?.model).toBe('anthropic/claude-opus-4-6');
+		expect(config.triage.model).toBe('anthropic/claude-opus-4-6');
+		expect(config.triage.verificationModel).toBe('anthropic/claude-haiku-4-5');
+	});
+
+	it('keeps Workers AI available alongside Anthropic', () => {
+		const config = parseFactoryConfig(`
+version: 1
+triage:
+  model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+  verificationModel: anthropic/claude-haiku-4-5
+`);
+		// Workers AI ids carry their own slashes; only the first segment is the
+		// provider, so the rest must survive intact.
+		expect(config.triage.model).toBe('cloudflare/@cf/moonshotai/kimi-k2.7-code');
+		expect(config.triage.verificationModel).toBe('anthropic/claude-haiku-4-5');
+	});
+
+	it('falls back to the built-in models for capabilities that name none', () => {
+		const config = parseFactoryConfig('version: 1\ntriage:\n  model: anthropic/claude-opus-4-6');
+		expect(config.triage.model).toBe('anthropic/claude-opus-4-6');
+		expect(config.triage.verificationModel).toBe(VERIFICATION_MODEL);
+	});
+
+	it.each([
+		'openai/gpt-5',
+		'kimi-k2.6',
+		'/claude-opus-4-6',
+		'anthropic/',
+		'Anthropic/claude-opus-4-6',
+	])('rejects a model that names an unbundled provider or is malformed: %s', (model) => {
+		expect(() => parseFactoryConfig(`version: 1\ntriage:\n  model: ${model}`)).toThrow();
 	});
 
 	it.each([

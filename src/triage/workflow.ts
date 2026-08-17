@@ -299,6 +299,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			fixBranch: branch,
 			skillName: skill.name,
 			skillDirectory: skill.directory,
+			model: triage.model,
 		};
 		const pipelineStep = <S extends v.GenericSchema>(
 			name: string,
@@ -756,6 +757,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					issueTitle: issue.title,
 					issueBody: issue.body,
 					conversation: issue.conversation,
+					model: triage.verificationModel,
 				},
 				idempotencyKey: params.deliveryId,
 				message: {
@@ -845,6 +847,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					defaultBranch: params.defaultBranch,
 					conversation: issue.conversation.slice(-10),
 					latestComment: issue.latestNonBotComment,
+					model: triage.verificationModel,
 				},
 				idempotencyKey: params.deliveryId,
 				message: {

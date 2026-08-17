@@ -14,6 +14,12 @@ import * as v from 'valibot';
 import type { InstallationClient } from './github/client.ts';
 import { isGitHubStatus, readRepositoryFile } from './github/content.ts';
 import { validateSkillDirectory } from './github/skill.ts';
+import {
+	CODE_MODEL,
+	isSupportedModel,
+	MODEL_PROVIDERS,
+	VERIFICATION_MODEL,
+} from './models.ts';
 import { DEFAULT_TRIAGE_LABELS, type TriageLabelConfig } from './triage/labels.ts';
 import {
 	DEFAULT_PREVIEW_CHECK_APP,
@@ -56,12 +62,29 @@ const classificationListSchema = v.pipe(
 
 const labelNameSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(50));
 
+/**
+ * A `<provider>/<model>` specifier. Validated here rather than at the first
+ * model call so a typo surfaces as a configuration error instead of failing
+ * partway through an agent run.
+ */
+const modelSchema = v.pipe(
+	v.string(),
+	v.trim(),
+	v.minLength(1),
+	v.maxLength(200),
+	v.check(
+		isSupportedModel,
+		`A model must be "<provider>/<model>", where provider is one of: ${MODEL_PROVIDERS.join(', ')}.`,
+	),
+);
+
 const factoryConfigSchema = v.object({
 	version: v.literal(1),
 	review: v.optional(
 		v.object({
 			trigger: v.object({ label: labelNameSchema }),
 			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+			model: v.optional(modelSchema),
 			severity: v.optional(classificationListSchema),
 			areas: v.optional(classificationListSchema),
 		}),
@@ -71,6 +94,8 @@ const factoryConfigSchema = v.object({
 			enabled: v.optional(v.boolean()),
 			autoPrOnFix: v.optional(v.boolean()),
 			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+			model: v.optional(modelSchema),
+			verificationModel: v.optional(modelSchema),
 			previewRelease: v.optional(
 				v.object({
 					workflow: v.pipe(
@@ -119,6 +144,8 @@ export interface ReviewConfig {
 	trigger: { label: string };
 	/** Repository skill override; the bundled default skill is used when absent. */
 	skill: string | undefined;
+	/** `<provider>/<model>` for the reviewer agent. */
+	model: string;
 	severity: string[];
 	areas: string[];
 }
@@ -145,6 +172,14 @@ export interface TriageConfig {
 	autoPrOnFix: boolean;
 	/** Repository skill override; the bundled default skill is used when absent. */
 	skill: string | undefined;
+	/** `<provider>/<model>` for the reproduce/diagnose/fix pipeline agent. */
+	model: string;
+	/**
+	 * `<provider>/<model>` for the small classification agents (fix
+	 * verification, retriage decisions). These read conversation text and get
+	 * no tools, so they do not need a coding model.
+	 */
+	verificationModel: string;
 	/** Absent means the repository publishes no preview releases. */
 	previewRelease: PreviewReleaseConfig | undefined;
 	labels: TriageLabelConfig;
@@ -163,6 +198,8 @@ export function defaultFactoryConfig(): FactoryConfig {
 			enabled: true,
 			autoPrOnFix: false,
 			skill: undefined,
+			model: CODE_MODEL,
+			verificationModel: VERIFICATION_MODEL,
 			previewRelease: undefined,
 			labels: { ...DEFAULT_TRIAGE_LABELS },
 		},
@@ -178,6 +215,7 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 					skill: config.review.skill
 						? validateSkillDirectory(config.review.skill)
 						: undefined,
+					model: config.review.model ?? CODE_MODEL,
 					severity: config.review.severity ?? [...DEFAULT_SEVERITIES],
 					areas: config.review.areas ?? [...DEFAULT_AREAS],
 				}
@@ -186,6 +224,8 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 			enabled: config.triage?.enabled ?? true,
 			autoPrOnFix: config.triage?.autoPrOnFix ?? false,
 			skill: config.triage?.skill ? validateSkillDirectory(config.triage.skill) : undefined,
+			model: config.triage?.model ?? CODE_MODEL,
+			verificationModel: config.triage?.verificationModel ?? VERIFICATION_MODEL,
 			previewRelease: config.triage?.previewRelease
 				? {
 						workflow: config.triage.previewRelease.workflow,

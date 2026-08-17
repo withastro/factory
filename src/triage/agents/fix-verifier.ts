@@ -10,7 +10,6 @@ import {
 	useTool,
 } from '@flue/runtime';
 import { Bash, InMemoryFs } from 'just-bash';
-import { VERIFICATION_MODEL } from '../../models.ts';
 import {
 	fixVerdictSchema,
 	fixVerifierInputSchema,
@@ -23,8 +22,8 @@ import {
  * This agent only reads the conversation it is given; it has no GitHub access.
  */
 export function FixVerifier() {
-	useModel(VERIFICATION_MODEL);
 	const input = useInitialData<FixVerifierInput>();
+	useModel(input.model);
 
 	useSandbox(bash(() => new Bash({ fs: new InMemoryFs() })));
 

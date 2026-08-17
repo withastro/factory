@@ -9,7 +9,6 @@ import {
 	useSandbox,
 } from '@flue/runtime';
 import { Bash, InMemoryFs } from 'just-bash';
-import { CODE_MODEL } from '../../models.ts';
 import {
 	createReviewResultSchema,
 	reviewAgentInputSchema,
@@ -19,8 +18,8 @@ import { useGitHubReviewTools } from './tools/github-read.ts';
 import { useSubmitReviewTool } from './tools/submit-review.ts';
 
 export function PullRequestReviewer() {
-	useModel(CODE_MODEL, { thinkingLevel: 'high' });
 	const input = useInitialData<ReviewAgentInput>();
+	useModel(input.model, { thinkingLevel: 'high' });
 
 	useSandbox(
 		bash(

@@ -5,13 +5,20 @@
 # produce a preview release for a reporter to confirm. Without it a fix would
 # land as a pushed branch labelled "needs triage" — a re-triageable state, so
 # the next comment could force-push over the fix.
+#
+# The models are the same ones src/models.ts falls back to, named explicitly so
+# a change to those defaults is a deliberate change here rather than a silent
+# one on the repository the factory tests itself against.
 version: 1
 
 review:
   trigger:
     label: ai-review
   skill: .agents/skills/factory-review
+  model: cloudflare/@cf/moonshotai/kimi-k2.7-code
 
 triage:
   enabled: true
   autoPrOnFix: true
+  model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+  verificationModel: cloudflare/@cf/moonshotai/kimi-k2.6
