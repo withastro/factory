@@ -99,6 +99,7 @@ export async function loadReviewSetup(
 			title: pull.data.title,
 			body: pull.data.body ?? '',
 			triggerLabel: config.trigger.label,
+			model: config.model,
 			severities: config.severity,
 			areas: config.areas,
 			skill,

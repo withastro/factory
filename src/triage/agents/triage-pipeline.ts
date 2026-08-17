@@ -11,7 +11,6 @@ import {
 } from '@flue/runtime';
 import { cloudflareSandbox } from '@flue/runtime/cloudflare';
 import type { WorkerEnv } from '../../env.ts';
-import { CODE_MODEL } from '../../models.ts';
 import {
 	commentResultSchema,
 	diagnoseResultSchema,
@@ -36,8 +35,8 @@ import { getTriageSandbox, REPO_DIR, TRIAGE_DIR } from '../sandbox.ts';
  * workflow code outside the sandbox.
  */
 export function TriagePipeline() {
-	useModel(CODE_MODEL, { thinkingLevel: 'high' });
 	const input = useInitialData<TriagePipelineInput>();
+	useModel(input.model, { thinkingLevel: 'high' });
 
 	useSandbox(
 		cloudflareSandbox(getTriageSandbox(env as unknown as WorkerEnv, input.sandboxId)),

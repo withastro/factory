@@ -28,6 +28,7 @@ export const triagePipelineInputSchema = v.object({
 	fixBranch: nonEmptyString,
 	skillName: nonEmptyString,
 	skillDirectory: nonEmptyString,
+	model: nonEmptyString,
 });
 
 export type TriagePipelineInput = v.InferOutput<typeof triagePipelineInputSchema>;

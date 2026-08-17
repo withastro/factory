@@ -74,6 +74,7 @@ export const fixVerifierInputSchema = v.object({
 	defaultBranch: nonEmptyString,
 	conversation: v.array(conversationEntrySchema),
 	latestComment: conversationEntrySchema,
+	model: nonEmptyString,
 });
 
 export type FixVerifierInput = v.InferOutput<typeof fixVerifierInputSchema>;
@@ -98,6 +99,7 @@ export const retriageJudgeInputSchema = v.object({
 	issueTitle: v.string(),
 	issueBody: v.string(),
 	conversation: v.array(conversationEntrySchema),
+	model: nonEmptyString,
 });
 
 export type RetriageJudgeInput = v.InferOutput<typeof retriageJudgeInputSchema>;
