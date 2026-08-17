@@ -1,0 +1,29 @@
+src/review/agents/pull-request-reviewer.ts
+  s_8ace4f657be706::t_1f848b322e400a 22
+src/triage/agents/fix-verifier.ts
+  s_8ace4f657be706::t_076994a4c0a8b4 26
+src/triage/agents/retriage-judge.ts
+  s_8ace4f657be706::t_0bdd24b6267389 26
+src/triage/agents/triage-pipeline.ts
+  s_8ace4f657be706::t_aed81a73817e2e 39
+src/triage/contracts.ts
+  s_8ace4f657be706::t_89558ccd813fc8 77,102
+src/triage/workflow.ts
+  s_8ace4f657be706::t_06ff11e9ef253b 302,760,850
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "46b2b363c1178e5c4d04ab563ab0f8eb3ba74a9b",
+  "prompts": {},
+  "sessions": {
+    "s_8ace4f657be706": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fff1e5adfffeMUeHI27YbwsHkZ",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    }
+  }
+}
