@@ -70,7 +70,10 @@ labels (visible, maintainer-overridable):
   rejected → `fix rejected`.
 - Comment on a re-triageable label → the RetriageJudge agent decides whether
   new actionable information warrants a re-run.
-- Issue closed → the fix branch is deleted.
+- Issue closed → the fix branch is deleted. A closed issue is then out of
+  scope whatever its triage label says: comments on it neither verify a fix nor
+  re-triage, so nothing pushes a branch or opens a pull request for an issue a
+  maintainer has already decided about. Reopening it resumes normal routing.
 - Unexpected failures post a marked comment; three strikes parks the issue in
   `triage: failed` until a maintainer clears it.
 
