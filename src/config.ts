@@ -43,6 +43,20 @@ export const DEFAULT_AREAS = [
 	'changeset',
 ] as const;
 
+/**
+ * Install step used when a repository configures none.
+ *
+ * Defaulted rather than left empty because nearly every repository the factory
+ * runs on is a pnpm workspace, and an uninstalled checkout can't reproduce
+ * anything. The lockfile is deliberately not frozen: the agent may add a
+ * dependency while building a reproduction, and a run that dies on a lockfile
+ * mismatch has failed for a reason that has nothing to do with the bug.
+ *
+ * A repository that isn't a pnpm workspace has to say so with
+ * `installCommand: []`, or its own install command.
+ */
+export const DEFAULT_INSTALL_COMMAND = ['pnpm install --no-frozen-lockfile'] as const;
+
 const classificationValueSchema = v.pipe(
 	v.string(),
 	v.trim(),
@@ -78,23 +92,73 @@ const modelSchema = v.pipe(
 	),
 );
 
+const MAX_COMMANDS = 20;
+const MAX_COMMAND_LENGTH = 500;
+
 /**
- * A shell command run in the sandbox checkout.
+ * Raw text for one or more shell commands.
  *
- * Deliberately unrestricted apart from its shape: it is maintainer-authored
- * content read from the default branch, and it runs in a sandbox that holds no
- * credentials, so it grants nothing the repository's own CI doesn't already
- * have. Control characters are rejected so the command stays a single
- * inspectable line in logs rather than something that can smuggle in extra
- * statements past a reviewer reading the config.
+ * Deliberately unrestricted apart from its shape: commands are
+ * maintainer-authored content read from the default branch, and they run in a
+ * sandbox that holds no credentials, so they grant nothing the repository's own
+ * CI doesn't already have. Tabs and newlines are allowed because YAML block
+ * scalars carry them; the remaining control characters are rejected so a
+ * command can't hide extra statements from someone reading the config.
  */
-const commandSchema = v.pipe(
+const commandTextSchema = v.pipe(
 	v.string(),
-	v.trim(),
-	v.minLength(1),
-	v.maxLength(500),
-	v.check((value) => !/[\u0000-\u001f\u007f]/.test(value), 'A command must be a single line.'),
+	v.maxLength(MAX_COMMANDS * MAX_COMMAND_LENGTH),
+	v.check(
+		(value) => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value),
+		'A command must not contain control characters.',
+	),
 );
+
+/**
+ * Split configured command text into one command per line, so all three ways of
+ * writing this in YAML mean the same thing:
+ *
+ *     buildCommand: pnpm build
+ *     buildCommand: [pnpm install, pnpm build]
+ *     buildCommand: |
+ *       pnpm install
+ *       pnpm build
+ *
+ * Splitting on newlines rather than treating a block scalar as one script keeps
+ * every command independently reportable, and gives each line `&&` semantics
+ * without anyone having to write `&&`: the runner stops at the first failure.
+ * The cost is that a command cannot span lines, so multi-line shell constructs
+ * have to be written on one line.
+ */
+function splitCommands(value: string | string[]): string[] {
+	return (Array.isArray(value) ? value : [value])
+		.flatMap((entry) => entry.split('\n'))
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
+}
+
+/** Bounds applied to the split result, whichever syntax produced it. */
+const splitCommandsSchema = v.pipe(
+	v.array(v.pipe(v.string(), v.maxLength(MAX_COMMAND_LENGTH))),
+	v.maxLength(MAX_COMMANDS),
+);
+
+const commandListSchema = v.union([
+	// A string has to name at least one command: writing an empty one is a
+	// mistake, not a way to say "do nothing".
+	v.pipe(
+		commandTextSchema,
+		v.transform((value: string) => splitCommands(value)),
+		v.minLength(1),
+		splitCommandsSchema,
+	),
+	// An empty list is how a repository switches a defaulted command off.
+	v.pipe(
+		v.array(commandTextSchema),
+		v.transform((value: string[]) => splitCommands(value)),
+		splitCommandsSchema,
+	),
+]);
 
 const factoryConfigSchema = v.object({
 	version: v.literal(1),
@@ -114,7 +178,8 @@ const factoryConfigSchema = v.object({
 			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 			model: v.optional(modelSchema),
 			verificationModel: v.optional(modelSchema),
-			buildCommand: v.optional(commandSchema),
+			installCommand: v.optional(commandListSchema),
+			buildCommand: v.optional(commandListSchema),
 			previewRelease: v.optional(
 				v.object({
 					workflow: v.pipe(
@@ -200,16 +265,22 @@ export interface TriageConfig {
 	 */
 	verificationModel: string;
 	/**
-	 * Shell command that builds the checkout before the pipeline agent starts,
-	 * run once from the repository root. Absent means no build happens: the
-	 * agent gets a bare checkout and has to bootstrap the repository itself
-	 * from the skill's instructions.
+	 * Commands that install the checkout's dependencies, run in order from the
+	 * repository root before {@link buildCommand}. Defaults to
+	 * {@link DEFAULT_INSTALL_COMMAND}; an empty list means no install.
+	 */
+	installCommand: string[];
+	/**
+	 * Commands that build the checkout, run in order from the repository root
+	 * after {@link installCommand} and before the pipeline agent starts. Empty
+	 * by default, because most repositories don't need building to reproduce a
+	 * bug.
 	 *
-	 * A monorepo whose packages resolve through built output (`dist/`) needs
-	 * this, or every reproduction attempt fails on the unbuilt workspace rather
+	 * A monorepo whose packages resolve through built output (`dist/`) does need
+	 * it, or every reproduction attempt fails on the unbuilt workspace rather
 	 * than on the reported bug.
 	 */
-	buildCommand: string | undefined;
+	buildCommand: string[];
 	/** Absent means the repository publishes no preview releases. */
 	previewRelease: PreviewReleaseConfig | undefined;
 	labels: TriageLabelConfig;
@@ -230,7 +301,8 @@ export function defaultFactoryConfig(): FactoryConfig {
 			skill: undefined,
 			model: CODE_MODEL,
 			verificationModel: VERIFICATION_MODEL,
-			buildCommand: undefined,
+			installCommand: [...DEFAULT_INSTALL_COMMAND],
+			buildCommand: [],
 			previewRelease: undefined,
 			labels: { ...DEFAULT_TRIAGE_LABELS },
 		},
@@ -257,7 +329,8 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 			skill: config.triage?.skill ? validateSkillDirectory(config.triage.skill) : undefined,
 			model: config.triage?.model ?? CODE_MODEL,
 			verificationModel: config.triage?.verificationModel ?? VERIFICATION_MODEL,
-			buildCommand: config.triage?.buildCommand,
+			installCommand: config.triage?.installCommand ?? [...DEFAULT_INSTALL_COMMAND],
+			buildCommand: config.triage?.buildCommand ?? [],
 			previewRelease: config.triage?.previewRelease
 				? {
 						workflow: config.triage.previewRelease.workflow,

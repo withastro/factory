@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
 	BUILD_TIMEOUT_SECONDS,
-	buildCommandScript,
+	checkoutCommandScript,
+	commandStageLabel,
+	INSTALL_TIMEOUT_SECONDS,
 	redactToken,
 	REPO_DIR,
 	shellQuote,
@@ -28,24 +30,29 @@ describe('triage sandbox helpers', () => {
 		expect(shellQuote('a`b$(c)')).toBe("'a`b$(c)'");
 	});
 
-	it('runs the build command from the checkout', () => {
-		expect(buildCommandScript('pnpm build')).toBe(`cd ${REPO_DIR} && pnpm build`);
+	it('runs configured commands from the checkout', () => {
+		expect(checkoutCommandScript('pnpm build')).toBe(`cd ${REPO_DIR} && pnpm build`);
 	});
 
-	it('leaves shell operators in the build command for sh to interpret', () => {
+	it('leaves shell operators in a configured command for sh to interpret', () => {
 		// Quoting the command would turn this into one unfindable executable
 		// name, which is the failure mode a "safety" refactor would introduce.
-		const script = buildCommandScript('pnpm install --frozen-lockfile && pnpm build');
-		expect(script).toContain('&&');
-		expect(script).not.toContain(shellQuote('pnpm install --frozen-lockfile && pnpm build'));
+		const script = checkoutCommandScript('git clone https://example.com/x.git || true');
+		expect(script).toContain('|| true');
+		expect(script).not.toContain(shellQuote('git clone https://example.com/x.git || true'));
 		// The composed script is still a single argument to a single `sh -c`.
-		expect(shellQuote(script)).toBe(
-			`'cd /repo && pnpm install --frozen-lockfile && pnpm build'`,
-		);
+		expect(shellQuote(script)).toBe(`'cd /repo && git clone https://example.com/x.git || true'`);
 	});
 
-	it('gives the build long enough for a cold monorepo install', () => {
-		expect(BUILD_TIMEOUT_SECONDS).toBeGreaterThanOrEqual(900);
+	it('names the stage and position of a command that fails', () => {
+		expect(commandStageLabel('install', 1, 3)).toBe('install 2/3');
+		// A lone command needs no position; "build 1/1" is just noise.
+		expect(commandStageLabel('build', 0, 1)).toBe('build');
+	});
+
+	it('gives install and build long enough for a cold monorepo', () => {
+		expect(INSTALL_TIMEOUT_SECONDS).toBeGreaterThanOrEqual(600);
+		expect(BUILD_TIMEOUT_SECONDS).toBeGreaterThanOrEqual(INSTALL_TIMEOUT_SECONDS);
 	});
 
 	it('redacts push tokens and clone auth headers from error output', () => {

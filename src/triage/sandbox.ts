@@ -24,8 +24,8 @@ import type { SkillSnapshot } from '../github/skill.ts';
 import {
 	assertGitRef,
 	assertRepoIdentifier,
-	BUILD_TIMEOUT_SECONDS,
-	buildCommandScript,
+	checkoutCommandScript,
+	commandStageLabel,
 	redactToken,
 	REPO_DIR,
 	shellQuote,
@@ -141,20 +141,34 @@ export async function setupTriageWorkspace(
 }
 
 /**
- * Run the repository's build command in the checkout, before the agent starts.
+ * Run the repository's configured commands in the checkout, in order, before
+ * the agent starts.
  *
- * A repository whose packages resolve through built output has to be built for
- * a reproduction to mean anything, and the agent shouldn't have to discover
- * that from its skill. Failure throws: an unbuildable default branch is an
- * environment problem, so triage parks the issue in the re-triageable `failed`
- * state with the build output in the failure comment, rather than reporting
- * "could not reproduce" about its own broken workspace.
+ * A repository whose dependencies aren't installed, or whose packages resolve
+ * through built output, can't reproduce anything, and the agent shouldn't have
+ * to discover that from its skill. Failure throws, and stops the remaining
+ * commands: a checkout that won't bootstrap is an environment problem, so
+ * triage parks the issue in the re-triageable `failed` state with the failing
+ * command's output in the failure comment, rather than reporting "could not
+ * reproduce" about its own broken workspace.
  *
- * The command should not modify tracked files — prefer a frozen lockfile — or
- * its edits become part of whatever the agent later commits as the fix.
+ * Commands should avoid modifying tracked files, or their edits become part of
+ * whatever the agent later commits as the fix.
  */
-export async function runBuildCommand(sandbox: TriageSandbox, command: string): Promise<void> {
-	await execOrThrow(sandbox, 'build', buildCommandScript(command), BUILD_TIMEOUT_SECONDS);
+export async function runCheckoutCommands(
+	sandbox: TriageSandbox,
+	stage: string,
+	commands: readonly string[],
+	timeoutSeconds: number,
+): Promise<void> {
+	for (const [index, command] of commands.entries()) {
+		await execOrThrow(
+			sandbox,
+			commandStageLabel(stage, index, commands.length),
+			checkoutCommandScript(command),
+			timeoutSeconds,
+		);
+	}
 }
 
 /** True when the working tree differs from the default branch or is dirty. */

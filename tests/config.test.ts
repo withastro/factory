@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	DEFAULT_AREAS,
+	DEFAULT_INSTALL_COMMAND,
 	DEFAULT_SEVERITIES,
 	defaultFactoryConfig,
 	parseFactoryConfig,
@@ -38,6 +39,8 @@ review:
 				skill: undefined,
 				model: CODE_MODEL,
 				verificationModel: VERIFICATION_MODEL,
+				installCommand: [...DEFAULT_INSTALL_COMMAND],
+				buildCommand: [],
 				previewRelease: undefined,
 				labels: { ...DEFAULT_TRIAGE_LABELS },
 			},
@@ -120,28 +123,72 @@ triage:
 		);
 	});
 
-	it('parses a build command', () => {
+	it('installs with pnpm and builds nothing by default', () => {
+		const triage = parseFactoryConfig('version: 1').triage;
+		expect(triage.installCommand).toEqual([...DEFAULT_INSTALL_COMMAND]);
+		expect(triage.buildCommand).toEqual([]);
+	});
+
+	it('accepts a single command as a plain string', () => {
+		expect(parseFactoryConfig('version: 1\ntriage:\n  buildCommand: pnpm build').triage.buildCommand).toEqual([
+			'pnpm build',
+		]);
+	});
+
+	it('accepts one command per line as a YAML list', () => {
 		expect(
 			parseFactoryConfig(`
 version: 1
 triage:
-  buildCommand: pnpm install --frozen-lockfile && pnpm build
+  installCommand:
+    - pnpm install --no-frozen-lockfile
+    - git clone --depth 1 https://github.com/withastro/compiler.git .compiler || true
+  buildCommand:
+    - pnpm build
+`).triage,
+		).toMatchObject({
+			installCommand: [
+				'pnpm install --no-frozen-lockfile',
+				'git clone --depth 1 https://github.com/withastro/compiler.git .compiler || true',
+			],
+			buildCommand: ['pnpm build'],
+		});
+	});
+
+	it('reads a block scalar as one command per line', () => {
+		// Same meaning as the list form: no `&&` required to sequence steps.
+		expect(
+			parseFactoryConfig(`
+version: 1
+triage:
+  buildCommand: |
+    pnpm --filter astro build
+
+    pnpm --filter "@astrojs/*" build
 `).triage.buildCommand,
-		).toBe('pnpm install --frozen-lockfile && pnpm build');
+		).toEqual(['pnpm --filter astro build', 'pnpm --filter "@astrojs/*" build']);
 	});
 
-	it('leaves the build command absent when none is configured', () => {
-		expect(parseFactoryConfig('version: 1\ntriage:\n  enabled: true').triage.buildCommand).toBe(
-			undefined,
-		);
+	it('lets a repository switch the default install off with an empty list', () => {
+		expect(
+			parseFactoryConfig('version: 1\ntriage:\n  installCommand: []').triage.installCommand,
+		).toEqual([]);
 	});
 
-	it('rejects a build command that is empty or spans lines', () => {
-		for (const command of ['""', "'   '", '"pnpm build\\nrm -rf /"', '"pnpm build\\u0000"']) {
+	it('rejects an empty command string and unusable characters', () => {
+		// An empty string is a mistake; `installCommand: []` is how you mean it.
+		for (const command of ['""', "'   '", '"pnpm build\\u0000"', '"pnpm\\u001bbuild"']) {
 			expect(() =>
 				parseFactoryConfig(`version: 1\ntriage:\n  buildCommand: ${command}`),
 			).toThrow();
 		}
+	});
+
+	it('rejects more commands than a bootstrap should need', () => {
+		const commands = Array.from({ length: 21 }, (_, index) => `    - echo ${index}`).join('\n');
+		expect(() =>
+			parseFactoryConfig(`version: 1\ntriage:\n  buildCommand:\n${commands}`),
+		).toThrow();
 	});
 
 	it('parses an opt-in preview release workflow with the default check name', () => {
