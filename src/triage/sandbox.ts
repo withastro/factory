@@ -24,6 +24,8 @@ import type { SkillSnapshot } from '../github/skill.ts';
 import {
 	assertGitRef,
 	assertRepoIdentifier,
+	BUILD_TIMEOUT_SECONDS,
+	buildCommandScript,
 	redactToken,
 	REPO_DIR,
 	shellQuote,
@@ -136,6 +138,23 @@ export async function setupTriageWorkspace(
 	for (const [path, content] of Object.entries(setup.skill.files)) {
 		await sandbox.writeFile(`${REPO_DIR}/${setup.skill.directory}/${path}`, content);
 	}
+}
+
+/**
+ * Run the repository's build command in the checkout, before the agent starts.
+ *
+ * A repository whose packages resolve through built output has to be built for
+ * a reproduction to mean anything, and the agent shouldn't have to discover
+ * that from its skill. Failure throws: an unbuildable default branch is an
+ * environment problem, so triage parks the issue in the re-triageable `failed`
+ * state with the build output in the failure comment, rather than reporting
+ * "could not reproduce" about its own broken workspace.
+ *
+ * The command should not modify tracked files — prefer a frozen lockfile — or
+ * its edits become part of whatever the agent later commits as the fix.
+ */
+export async function runBuildCommand(sandbox: TriageSandbox, command: string): Promise<void> {
+	await execOrThrow(sandbox, 'build', buildCommandScript(command), BUILD_TIMEOUT_SECONDS);
 }
 
 /** True when the working tree differs from the default branch or is dirty. */
