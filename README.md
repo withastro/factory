@@ -57,8 +57,9 @@ labels (visible, maintainer-overridable):
 - Issue opened/reopened → the full pipeline (reproduce → diagnose → verify →
   fix) runs in a **Cloudflare Sandbox container** holding a real checkout of
   the repository: a hardened blobless clone of the default branch, a
-  `factory/fix-N` branch, the skill seeded into the workspace, and a shell
-  for building and testing. The workflow then commits and force-pushes any
+  `factory/fix-N` branch, the skill seeded into the workspace, an optional
+  [build](#building-the-checkout) of that checkout, and a shell for building
+  and testing. The workflow then commits and force-pushes any
   changes (the contents-scoped token exists only inside that one step and
   never reaches the agent), optionally opens a PR (`autoPrOnFix`), publishes a
   [preview release](#preview-releases) when configured, generates the triage
@@ -99,6 +100,7 @@ triage:
   # skill: .agents/skills/triage       # overrides the bundled default skill
   # model: anthropic/claude-opus-4-6   # reproduce/diagnose/fix pipeline
   # verificationModel: anthropic/claude-haiku-4-5 # fix + retriage classifiers
+  # buildCommand: pnpm install --frozen-lockfile && pnpm build
   # previewRelease:
   #   workflow: factory-preview.yml    # opt in to preview releases
   #   check: factory/preview-release   # check run the workflow reports to
@@ -115,6 +117,36 @@ a repository can replace either one by committing a skill under
 (The bundled entry file is stored as `skill.md` — Flue's vite plugin treats
 imports literally named `SKILL.md` as packaged skills, and we need the raw
 text; it's seeded into the sandbox as `SKILL.md`.)
+
+## Building the checkout
+
+The triage sandbox is a plain checkout of the default branch — nothing is
+installed or built. For most repositories that's right: the agent runs whatever
+commands the reported bug needs, and a build it never uses is wasted time.
+
+A repository whose packages resolve through built output is the exception. In a
+monorepo where a reproduction project links `astro` to `packages/astro`, whose
+`main` points into `dist/`, nothing can run until the workspace is built — so
+without a build the agent reports "could not reproduce" about its own unbuilt
+workspace rather than about the bug.
+
+`triage.buildCommand` runs once from the repository root, after the clone and
+before the agent starts:
+
+```yaml
+triage:
+  buildCommand: pnpm install --frozen-lockfile && pnpm build
+```
+
+It gets 30 minutes and one retry — the dependency install it usually starts with
+is the most network-dependent thing in a run — and its failure is treated as an
+environment problem, not a triage verdict: the issue lands in the re-triageable
+`triage: failed` state with the build output in the failure comment, so fixing
+the build and commenting is enough to resume.
+
+Prefer a frozen lockfile. The command runs in the same checkout the agent later
+commits from, so a build that edits tracked files makes those edits part of the
+fix.
 
 ## Models
 

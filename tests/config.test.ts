@@ -120,6 +120,30 @@ triage:
 		);
 	});
 
+	it('parses a build command', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+triage:
+  buildCommand: pnpm install --frozen-lockfile && pnpm build
+`).triage.buildCommand,
+		).toBe('pnpm install --frozen-lockfile && pnpm build');
+	});
+
+	it('leaves the build command absent when none is configured', () => {
+		expect(parseFactoryConfig('version: 1\ntriage:\n  enabled: true').triage.buildCommand).toBe(
+			undefined,
+		);
+	});
+
+	it('rejects a build command that is empty or spans lines', () => {
+		for (const command of ['""', "'   '", '"pnpm build\\nrm -rf /"', '"pnpm build\\u0000"']) {
+			expect(() =>
+				parseFactoryConfig(`version: 1\ntriage:\n  buildCommand: ${command}`),
+			).toThrow();
+		}
+	});
+
 	it('parses an opt-in preview release workflow with the default check name', () => {
 		expect(
 			parseFactoryConfig(`

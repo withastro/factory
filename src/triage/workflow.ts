@@ -82,6 +82,7 @@ import {
 	commitAndPush,
 	destroyTriageSandbox,
 	getTriageSandbox,
+	runBuildCommand,
 	setupTriageWorkspace,
 	triageSandboxId,
 	workspaceHasChanges,
@@ -348,6 +349,26 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					});
 				},
 			);
+
+			// Separate from provisioning so a slow build gets its own timeout and
+			// a broken build reports as a build failure rather than as a failure
+			// to clone. Retried once because the dependency install this usually
+			// starts with is the most network-dependent thing in the whole run;
+			// beyond that a failing build is broken rather than flaky, and
+			// further half-hour attempts only delay the failure comment.
+			if (triage.buildCommand) {
+				const buildCommand = triage.buildCommand;
+				await step.do(
+					'build workspace',
+					{
+						retries: { limit: 1, delay: '1 minute', backoff: 'constant' },
+						timeout: '35 minutes',
+					},
+					async () => {
+						await runBuildCommand(sandbox(), buildCommand);
+					},
+				);
+			}
 
 			// ----- reproduce → diagnose → verify → fix -----
 

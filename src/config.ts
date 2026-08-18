@@ -78,6 +78,24 @@ const modelSchema = v.pipe(
 	),
 );
 
+/**
+ * A shell command run in the sandbox checkout.
+ *
+ * Deliberately unrestricted apart from its shape: it is maintainer-authored
+ * content read from the default branch, and it runs in a sandbox that holds no
+ * credentials, so it grants nothing the repository's own CI doesn't already
+ * have. Control characters are rejected so the command stays a single
+ * inspectable line in logs rather than something that can smuggle in extra
+ * statements past a reviewer reading the config.
+ */
+const commandSchema = v.pipe(
+	v.string(),
+	v.trim(),
+	v.minLength(1),
+	v.maxLength(500),
+	v.check((value) => !/[\u0000-\u001f\u007f]/.test(value), 'A command must be a single line.'),
+);
+
 const factoryConfigSchema = v.object({
 	version: v.literal(1),
 	review: v.optional(
@@ -96,6 +114,7 @@ const factoryConfigSchema = v.object({
 			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 			model: v.optional(modelSchema),
 			verificationModel: v.optional(modelSchema),
+			buildCommand: v.optional(commandSchema),
 			previewRelease: v.optional(
 				v.object({
 					workflow: v.pipe(
@@ -180,6 +199,17 @@ export interface TriageConfig {
 	 * no tools, so they do not need a coding model.
 	 */
 	verificationModel: string;
+	/**
+	 * Shell command that builds the checkout before the pipeline agent starts,
+	 * run once from the repository root. Absent means no build happens: the
+	 * agent gets a bare checkout and has to bootstrap the repository itself
+	 * from the skill's instructions.
+	 *
+	 * A monorepo whose packages resolve through built output (`dist/`) needs
+	 * this, or every reproduction attempt fails on the unbuilt workspace rather
+	 * than on the reported bug.
+	 */
+	buildCommand: string | undefined;
 	/** Absent means the repository publishes no preview releases. */
 	previewRelease: PreviewReleaseConfig | undefined;
 	labels: TriageLabelConfig;
@@ -200,6 +230,7 @@ export function defaultFactoryConfig(): FactoryConfig {
 			skill: undefined,
 			model: CODE_MODEL,
 			verificationModel: VERIFICATION_MODEL,
+			buildCommand: undefined,
 			previewRelease: undefined,
 			labels: { ...DEFAULT_TRIAGE_LABELS },
 		},
@@ -226,6 +257,7 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 			skill: config.triage?.skill ? validateSkillDirectory(config.triage.skill) : undefined,
 			model: config.triage?.model ?? CODE_MODEL,
 			verificationModel: config.triage?.verificationModel ?? VERIFICATION_MODEL,
+			buildCommand: config.triage?.buildCommand,
 			previewRelease: config.triage?.previewRelease
 				? {
 						workflow: config.triage.previewRelease.workflow,

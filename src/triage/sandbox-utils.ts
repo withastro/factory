@@ -36,6 +36,27 @@ export function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+/**
+ * Seconds the repository's build command gets before it is killed. Installing
+ * and building a large monorepo from cold is slow, and a build still running
+ * after half an hour is stuck rather than slow.
+ */
+export const BUILD_TIMEOUT_SECONDS = 1_800;
+
+/**
+ * Compose the build script: change into the checkout, then run the
+ * maintainer's command.
+ *
+ * The command is interpolated rather than quoted on purpose. It is a shell
+ * command, not an argument — `pnpm install && pnpm build` has to keep working —
+ * and the caller passes the whole composed script to a single `sh -c`, so the
+ * operators are interpreted there and nowhere else. Quoting it would silently
+ * turn every multi-part build into a single unfindable executable name.
+ */
+export function buildCommandScript(command: string): string {
+	return `cd ${REPO_DIR} && ${command}`;
+}
+
 export function assertRepoIdentifier(value: string): void {
 	if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
 		throw new Error(`Unsafe repository identifier: ${JSON.stringify(value)}`);
