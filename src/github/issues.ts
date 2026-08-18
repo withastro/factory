@@ -32,6 +32,17 @@ export const issueDetailsSchema = v.object({
 export type IssueDetails = v.InferOutput<typeof issueDetailsSchema>;
 export type IssueComment = IssueDetails['comments'][number];
 
+/**
+ * Narrow the API's `state` string to the two values that matter.
+ *
+ * Compared case-insensitively against "closed" rather than against "open" on
+ * purpose: an unexpected value then reads as open and leaves triage running,
+ * instead of silently switching it off for every issue in the repository.
+ */
+export function normalizeIssueState(state: string): 'open' | 'closed' {
+	return state.trim().toLowerCase() === 'closed' ? 'closed' : 'open';
+}
+
 export async function fetchIssueDetails(
 	client: InstallationClient,
 	owner: string,

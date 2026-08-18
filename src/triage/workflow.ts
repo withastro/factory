@@ -24,6 +24,7 @@ import {
 	findExistingBranch,
 	findOpenPullRequest,
 	getBranchHeadSha,
+	normalizeIssueState,
 	partitionClassificationLabels,
 	postIssueComment,
 	swapIssueLabel,
@@ -966,7 +967,14 @@ async function loadAndRoute(
 
 	const details = await fetchIssueDetails(api, params.owner, params.repo, params.issueNumber);
 	const action = route(
-		{ action: params.issueAction, issueLabels: details.labels },
+		{
+			action: params.issueAction,
+			// Read from the issue rather than inferred from the action: the
+			// delivery only says what happened, and the issue may have moved on
+			// while the delivery waited its turn in the per-issue queue.
+			issueState: normalizeIssueState(details.state),
+			issueLabels: details.labels,
+		},
 		config.triage.labels,
 	);
 
