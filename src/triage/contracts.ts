@@ -92,6 +92,16 @@ export const fixVerdictSchema = v.object({
 
 export type FixVerdict = v.InferOutput<typeof fixVerdictSchema>;
 
+export function validateFixVerdict(verdict: FixVerdict): FixVerdict {
+	if (verdict.status === 'confirmed' && !verdict.pr) {
+		throw new Error('A confirmed verdict must include PR content.');
+	}
+	if (verdict.status !== 'confirmed' && verdict.pr) {
+		throw new Error('Only a confirmed verdict may include PR content.');
+	}
+	return verdict;
+}
+
 export const retriageJudgeInputSchema = v.object({
 	owner: nonEmptyString,
 	repo: nonEmptyString,

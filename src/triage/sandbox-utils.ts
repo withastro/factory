@@ -59,6 +59,29 @@ export function checkoutCommandScript(command: string): string {
 	return `cd ${REPO_DIR} && ${command}`;
 }
 
+export function existingFixFetchScript(
+	branch: string,
+	headSha: string,
+	cloneToken?: string,
+): string {
+	assertGitRef(branch);
+	assertGitCommit(headSha);
+	const authConfig = cloneToken
+		? `-c http.extraHeader=${shellQuote(`Authorization: basic ${btoa(`x-access-token:${cloneToken}`)}`)} `
+		: '';
+	return [
+		`cd ${REPO_DIR}`,
+		`git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 ${authConfig}fetch --no-tags origin ${shellQuote(`refs/heads/${branch}`)}`,
+		`test "$(git rev-parse FETCH_HEAD)" = ${shellQuote(headSha)}`,
+	].join(' && ');
+}
+
+export function fixBranchCheckoutCommand(branch: string, headSha?: string): string {
+	assertGitRef(branch);
+	if (headSha) assertGitCommit(headSha);
+	return `git checkout -B ${shellQuote(branch)}${headSha ? ` ${shellQuote(headSha)}` : ''}`;
+}
+
 /**
  * Label a command for logs and failure messages: which stage, and where in the
  * stage it got to. Configured commands are the one part of a run a maintainer
@@ -78,6 +101,12 @@ export function assertRepoIdentifier(value: string): void {
 export function assertGitRef(value: string): void {
 	if (value.startsWith('-') || !/^[A-Za-z0-9._\/-]+$/.test(value) || value.includes('..')) {
 		throw new Error(`Unsafe git ref: ${JSON.stringify(value)}`);
+	}
+}
+
+export function assertGitCommit(value: string): void {
+	if (!/^[0-9a-f]{40,64}$/.test(value)) {
+		throw new Error(`Unsafe git commit: ${JSON.stringify(value)}`);
 	}
 }
 

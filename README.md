@@ -68,7 +68,8 @@ labels (visible, maintainer-overridable):
   and selects priority/package labels.
 - Comment on `triage: fix pending` → the FixVerifier agent classifies the
   reporter's response: confirmed → open the fix PR + `fix verified`;
-  rejected → `fix rejected`.
+  rejected or partially fixed → acknowledge the feedback and immediately
+  continue triage from the existing candidate on the same fix branch.
 - Comment on a re-triageable label → the RetriageJudge agent decides whether
   new actionable information warrants a re-run.
 - Issue closed → the fix branch is deleted. A closed issue is then out of

@@ -3,6 +3,8 @@ import {
 	BUILD_TIMEOUT_SECONDS,
 	checkoutCommandScript,
 	commandStageLabel,
+	existingFixFetchScript,
+	fixBranchCheckoutCommand,
 	INSTALL_TIMEOUT_SECONDS,
 	redactToken,
 	REPO_DIR,
@@ -42,6 +44,25 @@ describe('triage sandbox helpers', () => {
 		expect(script).not.toContain(shellQuote('git clone https://example.com/x.git || true'));
 		// The composed script is still a single argument to a single `sh -c`.
 		expect(shellQuote(script)).toBe(`'cd /repo && git clone https://example.com/x.git || true'`);
+	});
+
+	it('pins a retried fix branch to the verified commit', () => {
+		const sha = 'a'.repeat(40);
+		const fetch = existingFixFetchScript('factory/fix-139', sha);
+		expect(fetch).toContain("fetch --no-tags origin 'refs/heads/factory/fix-139'");
+		expect(fetch).toContain(`test "$(git rev-parse FETCH_HEAD)" = '${sha}'`);
+		expect(fixBranchCheckoutCommand('factory/fix-139', sha)).toBe(
+			`git checkout -B 'factory/fix-139' '${sha}'`,
+		);
+		expect(fixBranchCheckoutCommand('factory/fix-140')).toBe(
+			`git checkout -B 'factory/fix-140'`,
+		);
+	});
+
+	it('rejects an unsafe fix commit before building git commands', () => {
+		expect(() => existingFixFetchScript('factory/fix-139', 'main; rm -rf /')).toThrow(
+			'Unsafe git commit',
+		);
 	});
 
 	it('names the stage and position of a command that fails', () => {

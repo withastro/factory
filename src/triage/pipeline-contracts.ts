@@ -26,6 +26,7 @@ export const triagePipelineInputSchema = v.object({
 	conversation: v.array(conversationEntrySchema),
 	defaultBranch: nonEmptyString,
 	fixBranch: nonEmptyString,
+	continuingFix: v.optional(v.boolean(), false),
 	skillName: nonEmptyString,
 	skillDirectory: nonEmptyString,
 	model: nonEmptyString,
