@@ -57,9 +57,10 @@ labels (visible, maintainer-overridable):
 - Issue opened/reopened → the full pipeline (reproduce → diagnose → verify →
   fix) runs in a **Cloudflare Sandbox container** holding a real checkout of
   the repository: a hardened blobless clone of the default branch, a
-  `factory/fix-N` branch, the skill seeded into the workspace, an optional
-  [build](#building-the-checkout) of that checkout, and a shell for building
-  and testing. The workflow then commits and force-pushes any
+  `factory/fix-N` branch, the skill seeded into the workspace, an
+  [install and optional build](#bootstrapping-the-checkout) of that checkout,
+  and a shell for building and testing. The workflow then commits and
+  force-pushes any
   changes (the contents-scoped token exists only inside that one step and
   never reaches the agent), optionally opens a PR (`autoPrOnFix`), publishes a
   [preview release](#preview-releases) when configured, generates the triage
@@ -103,7 +104,8 @@ triage:
   # skill: .agents/skills/triage       # overrides the bundled default skill
   # model: anthropic/claude-opus-4-6   # reproduce/diagnose/fix pipeline
   # verificationModel: anthropic/claude-haiku-4-5 # fix + retriage classifiers
-  # buildCommand: pnpm install --frozen-lockfile && pnpm build
+  # installCommand: pnpm install --no-frozen-lockfile # [] to install nothing
+  # buildCommand: pnpm build           # one command, a list, or a block scalar
   # previewRelease:
   #   workflow: factory-preview.yml    # opt in to preview releases
   #   check: factory/preview-release   # check run the workflow reports to
@@ -121,35 +123,71 @@ a repository can replace either one by committing a skill under
 imports literally named `SKILL.md` as packaged skills, and we need the raw
 text; it's seeded into the sandbox as `SKILL.md`.)
 
-## Building the checkout
+## Bootstrapping the checkout
 
-The triage sandbox is a plain checkout of the default branch — nothing is
-installed or built. For most repositories that's right: the agent runs whatever
-commands the reported bug needs, and a build it never uses is wasted time.
-
-A repository whose packages resolve through built output is the exception. In a
-monorepo where a reproduction project links `astro` to `packages/astro`, whose
-`main` points into `dist/`, nothing can run until the workspace is built — so
-without a build the agent reports "could not reproduce" about its own unbuilt
-workspace rather than about the bug.
-
-`triage.buildCommand` runs once from the repository root, after the clone and
-before the agent starts:
+The triage sandbox starts as a plain checkout of the default branch. Two
+optional stages run before the agent does, each a list of commands executed in
+order from the repository root:
 
 ```yaml
 triage:
-  buildCommand: pnpm install --frozen-lockfile && pnpm build
+  installCommand:
+    - pnpm install --no-frozen-lockfile
+    - git clone --depth 1 https://github.com/withastro/compiler.git .compiler || true
+  buildCommand: pnpm build
 ```
 
-It gets 30 minutes and one retry — the dependency install it usually starts with
-is the most network-dependent thing in a run — and its failure is treated as an
-environment problem, not a triage verdict: the issue lands in the re-triageable
-`triage: failed` state with the build output in the failure comment, so fixing
-the build and commenting is enough to resume.
+`installCommand` **defaults to `pnpm install --no-frozen-lockfile`**, because
+nearly every repository the factory runs on is a pnpm workspace and an
+uninstalled checkout can't reproduce anything. The lockfile is deliberately not
+frozen: the agent may add a dependency while building a reproduction, and a run
+that dies on a lockfile mismatch has failed for a reason unrelated to the bug. A
+repository that isn't a pnpm workspace has to say so — `installCommand: []`
+switches the default off.
 
-Prefer a frozen lockfile. The command runs in the same checkout the agent later
-commits from, so a build that edits tracked files makes those edits part of the
-fix.
+`buildCommand` is empty by default. A repository whose packages resolve through
+built output needs it: in a monorepo where a reproduction project links `astro`
+to `packages/astro`, whose `main` points into `dist/`, nothing runs until the
+workspace is built, so without it the agent reports "could not reproduce" about
+its own unbuilt workspace rather than about the bug.
+
+### Writing commands
+
+All three YAML spellings mean the same thing — one command per line, no `&&`
+needed to sequence them:
+
+```yaml
+buildCommand: pnpm build                    # a single command
+buildCommand: [pnpm install, pnpm build]    # a list
+buildCommand: |                             # a block scalar
+  pnpm install
+  pnpm build
+```
+
+Each line runs as its own command and the stage stops at the first failure, so
+lines have `&&` semantics without the punctuation. The cost is that a single
+command can't span lines: write multi-line shell constructs on one line, or as
+a script in the repository.
+
+Commands are maintainer-authored content read from the default branch and run in
+a sandbox holding no credentials, so they're otherwise unrestricted — they grant
+nothing the repository's own CI doesn't already have.
+
+### Failure
+
+A checkout that won't bootstrap is an environment problem, not a triage verdict.
+Failure stops the remaining commands and parks the issue in the re-triageable
+`triage: failed` state, with the failing command's output in the failure
+comment, so fixing the repository and commenting is enough to resume. Failure
+messages name the stage and position (`install 2/3`).
+
+Install gets 15 minutes per command and two retries, being the most
+network-dependent part of a run; build gets 30 minutes and one retry, which
+guards against a flaky container rather than a deterministically failing build.
+
+Commands should avoid modifying tracked files: they run in the same checkout the
+agent later commits from, so their edits become part of whatever it pushes as
+the fix.
 
 ## Models
 

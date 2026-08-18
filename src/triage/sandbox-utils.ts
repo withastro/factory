@@ -37,24 +37,36 @@ export function shellQuote(value: string): string {
 }
 
 /**
- * Seconds the repository's build command gets before it is killed. Installing
- * and building a large monorepo from cold is slow, and a build still running
- * after half an hour is stuck rather than slow.
+ * Seconds each configured command gets before it is killed. Installing a large
+ * monorepo from cold is slow and building it is slower; past these budgets a
+ * command is stuck rather than slow.
  */
+export const INSTALL_TIMEOUT_SECONDS = 900;
 export const BUILD_TIMEOUT_SECONDS = 1_800;
 
 /**
- * Compose the build script: change into the checkout, then run the
- * maintainer's command.
+ * Compose one configured command into a script: change into the checkout, then
+ * run the command.
  *
  * The command is interpolated rather than quoted on purpose. It is a shell
- * command, not an argument — `pnpm install && pnpm build` has to keep working —
+ * command, not an argument — `pnpm install || echo nope` has to keep working —
  * and the caller passes the whole composed script to a single `sh -c`, so the
  * operators are interpreted there and nowhere else. Quoting it would silently
- * turn every multi-part build into a single unfindable executable name.
+ * turn every command containing an operator into one unfindable executable
+ * name.
  */
-export function buildCommandScript(command: string): string {
+export function checkoutCommandScript(command: string): string {
 	return `cd ${REPO_DIR} && ${command}`;
+}
+
+/**
+ * Label a command for logs and failure messages: which stage, and where in the
+ * stage it got to. Configured commands are the one part of a run a maintainer
+ * wrote themselves, so "install 2/3" is the difference between a useful failure
+ * comment and a mystery.
+ */
+export function commandStageLabel(stage: string, index: number, total: number): string {
+	return total > 1 ? `${stage} ${index + 1}/${total}` : stage;
 }
 
 export function assertRepoIdentifier(value: string): void {

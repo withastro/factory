@@ -83,11 +83,12 @@ import {
 	commitAndPush,
 	destroyTriageSandbox,
 	getTriageSandbox,
-	runBuildCommand,
+	runCheckoutCommands,
 	setupTriageWorkspace,
 	triageSandboxId,
 	workspaceHasChanges,
 } from './sandbox.ts';
+import { BUILD_TIMEOUT_SECONDS, INSTALL_TIMEOUT_SECONDS } from './sandbox-utils.ts';
 import { route, type TriageAction } from './fsm.ts';
 
 const STEP_RETRIES = {
@@ -351,13 +352,34 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				},
 			);
 
-			// Separate from provisioning so a slow build gets its own timeout and
-			// a broken build reports as a build failure rather than as a failure
-			// to clone. Retried once because the dependency install this usually
-			// starts with is the most network-dependent thing in the whole run;
-			// beyond that a failing build is broken rather than flaky, and
-			// further half-hour attempts only delay the failure comment.
-			if (triage.buildCommand) {
+			// Install and build are separate steps, and separate from
+			// provisioning, so each gets its own timeout and a failure names the
+			// stage that actually broke rather than "the clone failed".
+			//
+			// Install is retried because it is the most network-dependent thing
+			// in a run. Build is retried too, but for a different reason: not
+			// because a failing build is flaky — it isn't — but because the
+			// container underneath it can be.
+			if (triage.installCommand.length > 0) {
+				const installCommand = triage.installCommand;
+				await step.do(
+					'install workspace dependencies',
+					{
+						retries: { limit: 2, delay: '1 minute', backoff: 'exponential' },
+						timeout: '20 minutes',
+					},
+					async () => {
+						await runCheckoutCommands(
+							sandbox(),
+							'install',
+							installCommand,
+							INSTALL_TIMEOUT_SECONDS,
+						);
+					},
+				);
+			}
+
+			if (triage.buildCommand.length > 0) {
 				const buildCommand = triage.buildCommand;
 				await step.do(
 					'build workspace',
@@ -366,7 +388,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 						timeout: '35 minutes',
 					},
 					async () => {
-						await runBuildCommand(sandbox(), buildCommand);
+						await runCheckoutCommands(sandbox(), 'build', buildCommand, BUILD_TIMEOUT_SECONDS);
 					},
 				);
 			}
