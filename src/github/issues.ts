@@ -100,6 +100,21 @@ export function partitionClassificationLabels(labels: RepoLabel[]): {
 	};
 }
 
+/**
+ * Compute which priority labels should be removed from an issue when applying
+ * a new priority label selection. Any existing priority label that is not the
+ * selected priority is returned. Package labels are intentionally left alone;
+ * an issue can legitimately carry several of those.
+ */
+export function computePriorityLabelsToRemove(
+	issueLabels: string[],
+	selectedPriority: string | null,
+	priorityLabels: RepoLabel[],
+): string[] {
+	const priorityNames = new Set(priorityLabels.map((label) => label.name));
+	return issueLabels.filter((label) => priorityNames.has(label) && label !== selectedPriority);
+}
+
 export async function fetchRepoLabels(
 	client: InstallationClient,
 	owner: string,
