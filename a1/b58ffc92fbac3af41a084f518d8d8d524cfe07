@@ -1,0 +1,23 @@
+src/triage/fsm.ts
+  s_8868eabfd92432::t_a159a43d2b99d9 60-66
+src/triage/labels.ts
+  s_8868eabfd92432::t_55274af238e662 12,28,49,66
+src/triage/progress.ts
+  s_8868eabfd92432::t_9a2944d9c6816f 1-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a1b58ffc92fbac3af41a084f518d8d8d524cfe07",
+  "prompts": {},
+  "sessions": {
+    "s_8868eabfd92432": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fe5b1612dffeD00icIEVS4ErIB",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    }
+  }
+}
