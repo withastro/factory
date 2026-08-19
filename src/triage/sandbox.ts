@@ -140,6 +140,18 @@ export async function setupTriageWorkspace(
 	}
 }
 
+/** Recreate the ephemeral checkout when the container was replaced between steps. */
+export async function ensureTriageWorkspace(
+	sandbox: Pick<TriageSandbox, 'exec'>,
+	setup: () => Promise<void>,
+): Promise<boolean> {
+	const checkout = await exec(sandbox, 'check workspace', `test -d ${REPO_DIR}/.git`, 30);
+	if (checkout.success) return false;
+
+	await setup();
+	return true;
+}
+
 /**
  * Run the repository's configured commands in the checkout, in order, before
  * the agent starts.
@@ -252,7 +264,7 @@ export async function destroyTriageSandbox(sandbox: TriageSandbox): Promise<void
 }
 
 async function exec(
-	sandbox: TriageSandbox,
+	sandbox: Pick<TriageSandbox, 'exec'>,
 	_stage: string,
 	command: string,
 	timeoutSeconds: number,
@@ -281,4 +293,3 @@ async function execOrThrow(
 	}
 	return result;
 }
-
