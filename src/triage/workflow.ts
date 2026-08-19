@@ -16,6 +16,7 @@ import {
 } from '../github/client.ts';
 import {
 	addIssueLabels,
+	computePriorityLabelsToRemove,
 	createPullRequest,
 	deleteBranchIfPresent,
 	ensureLabelExists,
@@ -27,6 +28,7 @@ import {
 	normalizeIssueState,
 	partitionClassificationLabels,
 	postIssueComment,
+	removeLabelIfPresent,
 	swapIssueLabel,
 	type PullRequestRef,
 } from '../github/issues.ts';
@@ -542,6 +544,8 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				'20 minutes',
 			);
 
+			let selectedPriority: string | null = null;
+			const priorityLabelsToRemove: string[] = [];
 			const chosenLabels: string[] = [];
 			if (
 				result.reproducible &&
@@ -556,11 +560,20 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				);
 				const priorityNames = new Set(repoLabels.priorityLabels.map((label) => label.name));
 				const packageNames = new Set(repoLabels.packageLabels.map((label) => label.name));
+				selectedPriority =
+					selection.priority && priorityNames.has(selection.priority)
+						? selection.priority
+						: null;
 				chosenLabels.push(
-					...(selection.priority && priorityNames.has(selection.priority)
-						? [selection.priority]
-						: []),
+					...(selectedPriority ? [selectedPriority] : []),
 					...selection.packages.filter((name) => packageNames.has(name)).slice(0, 3),
+				);
+				priorityLabelsToRemove.push(
+					...computePriorityLabelsToRemove(
+						issue.labels,
+						selectedPriority,
+						repoLabels.priorityLabels,
+					),
 				);
 			}
 
@@ -610,9 +623,18 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				);
 			});
 
-			if (chosenLabels.length > 0) {
+			if (chosenLabels.length > 0 || priorityLabelsToRemove.length > 0) {
 				await step.do('apply classification labels', STEP_RETRIES, async () => {
 					const api = await client();
+					for (const label of priorityLabelsToRemove) {
+						await removeLabelIfPresent(
+							api,
+							params.owner,
+							params.repo,
+							params.issueNumber,
+							label,
+							);
+					}
 					await addIssueLabels(api, params.owner, params.repo, params.issueNumber, chosenLabels);
 				});
 			}
