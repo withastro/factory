@@ -84,6 +84,7 @@ import { resolveTriageLabel } from './resolve-label.ts';
 import {
 	commitAndPush,
 	destroyTriageSandbox,
+	ensureTriageWorkspace,
 	getTriageSandbox,
 	runCheckoutCommands,
 	setupTriageWorkspace,
@@ -287,6 +288,23 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 
 		const sandboxId = triageSandboxId(params.repositoryId, params.issueNumber, params.deliveryId);
 		const sandbox = () => getTriageSandbox(this.env, sandboxId);
+		const setupWorkspace = async () => {
+			// Private repositories need an authenticated clone. Fetch a new token
+			// whenever a replacement container needs its ephemeral checkout restored.
+			const cloneToken = params.repoIsPrivate
+				? await createScopedInstallationToken(credentials, params.installationId, {
+						contents: 'read',
+					})
+				: undefined;
+			await setupTriageWorkspace(sandbox(), {
+				owner: params.owner,
+				repo: params.repo,
+				defaultBranch: params.defaultBranch,
+				fixBranch: branch,
+				skill,
+				cloneToken,
+			});
+		};
 		const agent = init(TriagePipeline, {
 			id: ['triage', params.repositoryId, params.issueNumber, params.deliveryId].join(':'),
 		});
@@ -334,24 +352,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			await step.do(
 				'provision sandbox workspace',
 				{ retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' }, timeout: '20 minutes' },
-				async () => {
-					// Private repositories need an authenticated clone. The token
-					// is contents-read, exists only inside this step, and is used
-					// as a one-shot header that git never persists.
-					const cloneToken = params.repoIsPrivate
-						? await createScopedInstallationToken(credentials, params.installationId, {
-								contents: 'read',
-							})
-						: undefined;
-					await setupTriageWorkspace(sandbox(), {
-						owner: params.owner,
-						repo: params.repo,
-						defaultBranch: params.defaultBranch,
-						fixBranch: branch,
-						skill,
-						cloneToken,
-					});
-				},
+				setupWorkspace,
 			);
 
 			// Install and build are separate steps, and separate from
@@ -371,6 +372,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 						timeout: '20 minutes',
 					},
 					async () => {
+						await ensureTriageWorkspace(sandbox(), setupWorkspace);
 						await runCheckoutCommands(
 							sandbox(),
 							'install',
@@ -390,6 +392,15 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 						timeout: '35 minutes',
 					},
 					async () => {
+						const recovered = await ensureTriageWorkspace(sandbox(), setupWorkspace);
+						if (recovered && triage.installCommand.length > 0) {
+							await runCheckoutCommands(
+								sandbox(),
+								'install',
+								triage.installCommand,
+								INSTALL_TIMEOUT_SECONDS,
+							);
+						}
 						await runCheckoutCommands(sandbox(), 'build', buildCommand, BUILD_TIMEOUT_SECONDS);
 					},
 				);

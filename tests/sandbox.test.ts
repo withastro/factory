@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@cloudflare/sandbox', () => ({ getSandbox: vi.fn() }));
+
+import { ensureTriageWorkspace } from '../src/triage/sandbox.ts';
 import {
 	BUILD_TIMEOUT_SECONDS,
 	checkoutCommandScript,
@@ -53,6 +57,23 @@ describe('triage sandbox helpers', () => {
 	it('gives install and build long enough for a cold monorepo', () => {
 		expect(INSTALL_TIMEOUT_SECONDS).toBeGreaterThanOrEqual(600);
 		expect(BUILD_TIMEOUT_SECONDS).toBeGreaterThanOrEqual(INSTALL_TIMEOUT_SECONDS);
+	});
+
+	it('keeps an existing checkout when a bootstrap step retries', async () => {
+		const exec = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
+		const setup = vi.fn();
+
+		expect(await ensureTriageWorkspace({ exec }, setup)).toBe(false);
+		expect(exec).toHaveBeenCalledWith(expect.stringContaining('test -d /repo/.git'));
+		expect(setup).not.toHaveBeenCalled();
+	});
+
+	it('recreates a checkout lost with a replacement container', async () => {
+		const exec = vi.fn().mockResolvedValue({ exitCode: 1, stdout: '', stderr: '' });
+		const setup = vi.fn().mockResolvedValue(undefined);
+
+		expect(await ensureTriageWorkspace({ exec }, setup)).toBe(true);
+		expect(setup).toHaveBeenCalledOnce();
 	});
 
 	it('redacts push tokens and clone auth headers from error output', () => {
