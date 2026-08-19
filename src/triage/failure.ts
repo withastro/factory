@@ -11,7 +11,9 @@ export const MAX_TRIAGE_FAILURES = 3;
 export const TRIAGE_FAILURE_MARKER = '<!-- factory:triage-failed -->';
 
 export function countTriageFailures(issue: IssueDetails): number {
-	return issue.comments.filter((comment) => comment.body.includes(TRIAGE_FAILURE_MARKER)).length;
+	return issue.comments.filter(
+		(comment) => comment.authorIsBot && comment.body.includes(TRIAGE_FAILURE_MARKER),
+	).length;
 }
 
 export function formatFailureComment(errorMessage: string, attempt: number): string {
