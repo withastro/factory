@@ -203,14 +203,121 @@ export async function swapIssueLabel(
 	await addIssueLabels(client, owner, repo, issueNumber, [newLabel]);
 }
 
+/** Replace any of the known old state labels before applying the new state. */
+export async function replaceIssueLabels(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	oldLabels: ReadonlyArray<string | null>,
+	newLabel: string,
+): Promise<void> {
+	for (const label of new Set(oldLabels)) {
+		if (label && label !== newLabel) {
+			await removeLabelIfPresent(client, owner, repo, issueNumber, label);
+		}
+	}
+	await addIssueLabels(client, owner, repo, issueNumber, [newLabel]);
+}
+
 export async function postIssueComment(
 	client: InstallationClient,
 	owner: string,
 	repo: string,
 	issueNumber: number,
 	body: string,
-): Promise<void> {
-	await client.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body });
+): Promise<number> {
+	const response = await client.rest.issues.createComment({
+		owner,
+		repo,
+		issue_number: issueNumber,
+		body,
+	});
+	return response.data.id;
+}
+
+/** Create or update the bot comment carrying a delivery-specific marker. */
+export async function upsertIssueComment(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	marker: string,
+	body: string,
+): Promise<number> {
+	const markedBody = body.includes(marker) ? body : `${body}\n\n${marker}`;
+	const existing = await findMarkedBotComment(client, owner, repo, issueNumber, marker);
+	if (existing) {
+		await client.rest.issues.updateComment({
+			owner,
+			repo,
+			comment_id: existing.id,
+			body: markedBody,
+		});
+		return existing.id;
+	}
+
+	try {
+		const response = await client.rest.issues.createComment({
+			owner,
+			repo,
+			issue_number: issueNumber,
+			body: markedBody,
+			// A Workflow retry must repeat the marker lookup before another POST.
+			request: { retries: 0 },
+		});
+		return response.data.id;
+	} catch (error) {
+		// The server may have committed the comment before the request failed.
+		const committed = await findMarkedBotComment(client, owner, repo, issueNumber, marker);
+		if (committed) return committed.id;
+		throw error;
+	}
+}
+
+/** Update a known progress comment, recreating it only if it was deleted. */
+export async function saveIssueComment(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	commentId: number | null,
+	marker: string,
+	body: string,
+): Promise<number> {
+	const markedBody = body.includes(marker) ? body : `${body}\n\n${marker}`;
+	if (commentId !== null) {
+		try {
+			await client.rest.issues.updateComment({
+				owner,
+				repo,
+				comment_id: commentId,
+				body: markedBody,
+			});
+			return commentId;
+		} catch (error) {
+			if (!isGitHubStatus(error, 404)) throw error;
+		}
+	}
+	return upsertIssueComment(client, owner, repo, issueNumber, marker, markedBody);
+}
+
+async function findMarkedBotComment(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	marker: string,
+) {
+	const comments = await client.paginate(client.rest.issues.listComments, {
+		owner,
+		repo,
+		issue_number: issueNumber,
+		per_page: 100,
+	});
+	return comments.find(
+		(comment) => comment.user?.type === 'Bot' && comment.body?.includes(marker),
+	);
 }
 
 export interface PullRequestRef {

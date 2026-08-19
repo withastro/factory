@@ -29,7 +29,10 @@ import {
 	partitionClassificationLabels,
 	postIssueComment,
 	removeLabelIfPresent,
+	replaceIssueLabels,
+	saveIssueComment,
 	swapIssueLabel,
+	upsertIssueComment,
 	type PullRequestRef,
 } from '../github/issues.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
@@ -53,7 +56,7 @@ import {
 	formatFailureComment,
 	MAX_TRIAGE_FAILURES,
 } from './failure.ts';
-import { currentTriageLabel, labelAppearance } from './labels.ts';
+import { allTriageLabels, currentTriageLabel, labelAppearance } from './labels.ts';
 import {
 	commentResultSchema,
 	diagnoseResultSchema,
@@ -80,6 +83,11 @@ import {
 	formatPreviewReleaseSection,
 	parsePreviewReleasePayload,
 } from './preview-release.ts';
+import {
+	formatTriageProgress,
+	triageProgressMarker,
+	type TriageProgressState,
+} from './progress.ts';
 import { resolveTriageLabel } from './resolve-label.ts';
 import {
 	commitAndPush,
@@ -225,28 +233,91 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 	): Promise<TriageWorkflowOutcome> {
 		const { issue, triage } = routed;
 		if (
-			issue.currentLabel === triage.labels.failed &&
+			(issue.currentLabel === triage.labels.failed ||
+				issue.currentLabel === triage.labels.inProgress) &&
 			issue.failureCount >= MAX_TRIAGE_FAILURES
 		) {
+			if (issue.currentLabel === triage.labels.inProgress) {
+				await step.do('repair exhausted triage state', STEP_RETRIES, async () => {
+					const api = await client();
+					await ensureLabelExists(
+						api,
+						params.owner,
+						params.repo,
+						triage.labels.failed,
+						labelAppearance(triage.labels.failed, triage.labels),
+					);
+					await replaceIssueLabels(
+						api,
+						params.owner,
+						params.repo,
+						params.issueNumber,
+						[triage.labels.inProgress],
+						triage.labels.failed,
+					);
+				});
+			}
 			return {
 				outcome: 'skipped',
 				reason: `Maximum failed triage attempts (${MAX_TRIAGE_FAILURES}) reached.`,
 			};
 		}
 
+		const progress: TriageProgressState = {
+			current: 'workspace',
+			includeInstall: triage.installCommand.length > 0,
+			includeBuild: triage.buildCommand.length > 0,
+			details: {},
+			skipped: {},
+		};
+		const progressComment = { id: null as number | null };
 		try {
-			return await this.runPipeline(step, client, credentials, params, routed);
+			await step.do('mark triage in progress', STEP_RETRIES, async () => {
+				const api = await client();
+				await ensureLabelExists(
+					api,
+					params.owner,
+					params.repo,
+					triage.labels.inProgress,
+					labelAppearance(triage.labels.inProgress, triage.labels),
+				);
+				await replaceIssueLabels(
+					api,
+					params.owner,
+					params.repo,
+					params.issueNumber,
+					[issue.currentLabel],
+					triage.labels.inProgress,
+				);
+			});
+			progressComment.id = await startTriageProgress(step, client, params, progress);
+
+			return await this.runPipeline(
+				step,
+				client,
+				credentials,
+				params,
+				routed,
+				progress,
+				progressComment,
+			);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			await step.do('record triage failure', STEP_RETRIES, async () => {
 				const api = await client();
 				const attempt = Math.min(issue.failureCount + 1, MAX_TRIAGE_FAILURES);
-				await postIssueComment(
+				await saveIssueComment(
 					api,
 					params.owner,
 					params.repo,
 					params.issueNumber,
-					formatFailureComment(message, attempt),
+					progressComment.id,
+					triageProgressMarker(params.deliveryId),
+					formatTriageProgress(
+						params.deliveryId,
+						{ ...progress, failed: true },
+						formatFailureComment(message, attempt),
+					),
 				);
 				await ensureLabelExists(
 					api,
@@ -255,12 +326,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					triage.labels.failed,
 					labelAppearance(triage.labels.failed, triage.labels),
 				);
-				await swapIssueLabel(
+				await replaceIssueLabels(
 					api,
 					params.owner,
 					params.repo,
 					params.issueNumber,
-					issue.currentLabel,
+					allTriageLabels(triage.labels),
 					triage.labels.failed,
 				);
 			});
@@ -274,6 +345,8 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		credentials: GitHubCredentials,
 		params: TriageWorkflowParams,
 		routed: RoutedIssue,
+		progress: TriageProgressState,
+		progressComment: { id: number | null },
 	): Promise<TriageWorkflowOutcome> {
 		const { issue, triage } = routed;
 		const branch = fixBranchName(params.issueNumber);
@@ -354,6 +427,20 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				{ retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' }, timeout: '20 minutes' },
 				setupWorkspace,
 			);
+			progress.details.workspace = 'ready';
+			progress.current = progress.includeInstall
+				? 'install'
+				: progress.includeBuild
+					? 'build'
+					: 'reproduce';
+			await reportTriageProgress(
+				step,
+				client,
+				params,
+				progressComment,
+				'workspace ready',
+				progress,
+			);
 
 			// Install and build are separate steps, and separate from
 			// provisioning, so each gets its own timeout and a failure names the
@@ -381,6 +468,16 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 						);
 					},
 				);
+				progress.details.install = 'complete';
+				progress.current = progress.includeBuild ? 'build' : 'reproduce';
+				await reportTriageProgress(
+					step,
+					client,
+					params,
+					progressComment,
+					'dependencies installed',
+					progress,
+				);
 			}
 
 			if (triage.buildCommand.length > 0) {
@@ -403,6 +500,16 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 						}
 						await runCheckoutCommands(sandbox(), 'build', buildCommand, BUILD_TIMEOUT_SECONDS);
 					},
+				);
+				progress.details.build = 'complete';
+				progress.current = 'reproduce';
+				await reportTriageProgress(
+					step,
+					client,
+					params,
+					progressComment,
+					'project built',
+					progress,
 				);
 			}
 
@@ -429,6 +536,31 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			result.reproducible = reproduce.reproducible;
 			result.skipped = reproduce.skipped;
 			result.skippedReason = reproduce.skippedReason;
+			progress.details.reproduce = reproduce.skipped
+				? `skipped${reproduce.skippedReason ? ` (${humanizeProgressValue(reproduce.skippedReason)})` : ''}`
+				: reproduce.reproducible
+					? 'confirmed'
+					: 'not reproduced';
+
+			if (!reproduce.skipped && reproduce.reproducible) {
+				progress.current = 'diagnose';
+			} else {
+				const reason = reproduce.skipped
+					? 'reproduction was skipped'
+					: 'the issue was not reproduced';
+				progress.skipped.diagnose = reason;
+				progress.skipped.verify = reason;
+				progress.skipped.fix = reason;
+				progress.current = 'publish';
+			}
+			await reportTriageProgress(
+				step,
+				client,
+				params,
+				progressComment,
+				'reproduction complete',
+				progress,
+			);
 
 			if (!reproduce.skipped && reproduce.reproducible) {
 				const diagnose = await pipelineStep(
@@ -439,6 +571,18 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					'25 minutes',
 				);
 				result.diagnosisConfidence = diagnose.confidence;
+				progress.details.diagnose = diagnose.confidence
+					? `${diagnose.confidence} confidence`
+					: 'no confidence reported';
+				progress.current = 'verify';
+				await reportTriageProgress(
+					step,
+					client,
+					params,
+					progressComment,
+					'diagnosis complete',
+					progress,
+				);
 
 				const verify = await pipelineStep(
 					'verify',
@@ -449,6 +593,21 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				);
 				result.verdict = verify.verdict;
 				result.completedStage = 'verify';
+				progress.details.verify = humanizeProgressValue(verify.verdict);
+				if (verify.verdict === 'intended-behavior') {
+					progress.skipped.fix = 'the reported behavior is intended';
+					progress.current = 'publish';
+				} else {
+					progress.current = 'fix';
+				}
+				await reportTriageProgress(
+					step,
+					client,
+					params,
+					progressComment,
+					'diagnosis verified',
+					progress,
+				);
 
 				if (verify.verdict !== 'intended-behavior') {
 					const fix = await pipelineStep(
@@ -461,6 +620,16 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					result.fixed = fix.fixed;
 					result.commitMessage = fix.commitMessage;
 					result.completedStage = 'fix';
+					progress.details.fix = fix.fixed ? 'verified' : 'no verified fix';
+					progress.current = 'publish';
+					await reportTriageProgress(
+						step,
+						client,
+						params,
+						progressComment,
+						'fix attempt complete',
+						progress,
+					);
 				}
 			}
 
@@ -601,39 +770,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					? await this.publishPreviewRelease(step, client, params, triage, branch)
 					: { available: false, section: null, detail: 'not applicable' };
 
-			// ----- comment, state label, classification labels -----
+			// ----- classification labels, comment, and final state -----
 
 			const newLabel = resolveTriageLabel(result, triage.labels, {
 				previewReleaseAvailable: preview.available,
 				prOpened: pullRequest !== null,
 			});
-			await step.do('post comment and swap state label', STEP_RETRIES, async () => {
-				const api = await client();
-				// The install instructions are spliced in here rather than
-				// generated, so the comment and `newLabel` can never disagree
-				// about whether a preview exists.
-				let comment = insertPreviewSection(generated.comment, preview.section);
-				if (pullRequest) {
-					comment += `\n\nI've opened a pull request with this fix: ${pullRequest.url}`;
-				}
-				await postIssueComment(api, params.owner, params.repo, params.issueNumber, comment);
-				await ensureLabelExists(
-					api,
-					params.owner,
-					params.repo,
-					newLabel,
-					labelAppearance(newLabel, triage.labels),
-				);
-				await swapIssueLabel(
-					api,
-					params.owner,
-					params.repo,
-					params.issueNumber,
-					issue.currentLabel,
-					newLabel,
-				);
-			});
-
 			if (chosenLabels.length > 0 || priorityLabelsToRemove.length > 0) {
 				await step.do('apply classification labels', STEP_RETRIES, async () => {
 					const api = await client();
@@ -649,6 +791,48 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					await addIssueLabels(api, params.owner, params.repo, params.issueNumber, chosenLabels);
 				});
 			}
+
+			// The install instructions are spliced in here rather than generated,
+			// so the comment and `newLabel` can never disagree about whether a
+			// preview exists.
+			let comment = insertPreviewSection(generated.comment, preview.section);
+			if (pullRequest) {
+				comment += `\n\nI've opened a pull request with this fix: ${pullRequest.url}`;
+			}
+			const completedProgress: TriageProgressState = {
+				...progress,
+				current: 'complete',
+				details: { ...progress.details, publish: `set \`${newLabel}\`` },
+			};
+			await step.do('publish triage result and swap state label', STEP_RETRIES, async () => {
+				const api = await client();
+				await saveIssueComment(
+					api,
+					params.owner,
+					params.repo,
+					params.issueNumber,
+					progressComment.id,
+					triageProgressMarker(params.deliveryId),
+					formatTriageProgress(params.deliveryId, completedProgress, comment),
+				);
+				await ensureLabelExists(
+					api,
+					params.owner,
+					params.repo,
+					newLabel,
+					labelAppearance(newLabel, triage.labels),
+				);
+				await replaceIssueLabels(
+					api,
+					params.owner,
+					params.repo,
+					params.issueNumber,
+					[issue.currentLabel, triage.labels.inProgress],
+					newLabel,
+				);
+			});
+			progress.current = 'complete';
+			progress.details.publish = completedProgress.details.publish;
 
 			return {
 				outcome: 'triaged',
@@ -1011,6 +1195,79 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 }
 
 // ---------- Helpers ----------
+
+async function startTriageProgress(
+	step: WorkflowStep,
+	client: () => Promise<InstallationClient>,
+	params: TriageWorkflowParams,
+	progress: TriageProgressState,
+): Promise<number | null> {
+	const body = formatTriageProgress(params.deliveryId, progress);
+	return step.do('report triage progress: started', async () => {
+		try {
+			const api = await client();
+			return await upsertIssueComment(
+				api,
+				params.owner,
+				params.repo,
+				params.issueNumber,
+				triageProgressMarker(params.deliveryId),
+				body,
+			);
+		} catch (error) {
+			logProgressError(params, error);
+			return null;
+		}
+	});
+}
+
+async function reportTriageProgress(
+	step: WorkflowStep,
+	client: () => Promise<InstallationClient>,
+	params: TriageWorkflowParams,
+	comment: { id: number | null },
+	name: string,
+	progress: TriageProgressState,
+): Promise<void> {
+	if (comment.id === null) return;
+	const commentId = comment.id;
+	const body = formatTriageProgress(params.deliveryId, progress);
+	comment.id = await step.do(`report triage progress: ${name}`, async () => {
+		try {
+			const api = await client();
+			return await saveIssueComment(
+				api,
+				params.owner,
+				params.repo,
+				params.issueNumber,
+				commentId,
+				triageProgressMarker(params.deliveryId),
+				body,
+			);
+		} catch (error) {
+			logProgressError(params, error);
+			return commentId;
+		}
+	});
+}
+
+function logProgressError(params: TriageWorkflowParams, error: unknown): void {
+	// Progress is useful status, not a reason to discard completed triage work.
+	// Final publication remains required and retried by its enclosing step.
+	console.warn(
+		JSON.stringify({
+			message: 'failed to update triage progress comment',
+			owner: params.owner,
+			repo: params.repo,
+			issueNumber: params.issueNumber,
+			error: error instanceof Error ? error.message : String(error),
+		}),
+	);
+}
+
+function humanizeProgressValue(value: string): string {
+	return value.replaceAll('-', ' ');
+}
 
 async function loadAndRoute(
 	client: () => Promise<InstallationClient>,

@@ -7,7 +7,7 @@ import {
 	TRIAGE_FAILURE_MARKER,
 } from '../src/triage/failure.ts';
 
-function issueWith(commentBodies: string[]): IssueDetails {
+function issueWith(commentBodies: Array<string | { body: string; authorIsBot: boolean }>): IssueDetails {
 	return {
 		number: 1,
 		title: 'Bug',
@@ -18,11 +18,11 @@ function issueWith(commentBodies: string[]): IssueDetails {
 		authorAssociation: 'NONE',
 		labels: [],
 		createdAt: '2026-01-01T00:00:00Z',
-		comments: commentBodies.map((body) => ({
+		comments: commentBodies.map((comment) => ({
 			author: { login: 'factory[bot]' },
-			authorIsBot: true,
+			authorIsBot: typeof comment === 'string' ? true : comment.authorIsBot,
 			authorAssociation: 'NONE',
-			body,
+			body: typeof comment === 'string' ? comment : comment.body,
 			createdAt: '2026-01-01T00:00:00Z',
 		})),
 	};
@@ -36,6 +36,11 @@ describe('triage failure bookkeeping', () => {
 				issueWith(['unrelated', `${TRIAGE_FAILURE_MARKER}\nTriage failed`, 'more']),
 			),
 		).toBe(1);
+		expect(
+			countTriageFailures(
+				issueWith([{ body: `${TRIAGE_FAILURE_MARKER}\nforged`, authorIsBot: false }]),
+			),
+		).toBe(0);
 	});
 
 	it('embeds the marker and the retry policy in failure comments', () => {

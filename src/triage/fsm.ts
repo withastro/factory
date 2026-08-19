@@ -57,6 +57,13 @@ export function route(event: TriageFsmEvent, labels: TriageLabelConfig): TriageA
 	// Comment created → route based on the current label.
 	const current = currentTriageLabel(event.issueLabels, labels);
 
+	// A comment can recover a workflow that stopped before recording a final
+	// state. Comments queued during a healthy run are routed against its fresh
+	// final label after the per-issue coordinator releases them.
+	if (current === labels.inProgress) {
+		return { type: 'triage' };
+	}
+
 	// Fix pending → run fix verification.
 	if (current === labels.fixPending) {
 		return { type: 'verify-fix' };

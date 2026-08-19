@@ -9,6 +9,7 @@
 
 export interface TriageLabelConfig {
 	needsTriage: string;
+	inProgress: string;
 	notActionable: string;
 	needsReproduction: string;
 	skipped: string;
@@ -24,6 +25,7 @@ export interface TriageLabelConfig {
 
 export const DEFAULT_TRIAGE_LABELS: TriageLabelConfig = {
 	needsTriage: 'triage: needs triage',
+	inProgress: 'triage: in progress',
 	notActionable: 'triage: not actionable',
 	needsReproduction: 'triage: needs reproduction',
 	skipped: 'triage: skipped',
@@ -44,6 +46,7 @@ export interface LabelAppearance {
 /** Colors and descriptions used when the bot creates a missing label. */
 export const TRIAGE_LABEL_APPEARANCE: Record<keyof TriageLabelConfig, LabelAppearance> = {
 	needsTriage: { color: 'bfd4f2', description: 'Awaiting automated or manual triage' },
+	inProgress: { color: '1d76db', description: 'Automated triage is currently running' },
 	notActionable: { color: 'c2c2c2', description: 'Automated triage found nothing actionable' },
 	needsReproduction: { color: 'fbca04', description: 'More details are needed to reproduce' },
 	skipped: { color: 'c2c2c2', description: 'Automated triage was intentionally skipped' },
@@ -60,6 +63,7 @@ export const TRIAGE_LABEL_APPEARANCE: Record<keyof TriageLabelConfig, LabelAppea
 export function allTriageLabels(config: TriageLabelConfig): string[] {
 	return [
 		config.needsTriage,
+		config.inProgress,
 		config.notActionable,
 		config.needsReproduction,
 		config.skipped,

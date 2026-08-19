@@ -12,14 +12,17 @@ import {
 describe('triage labels', () => {
 	it('keeps the state label sets disjoint and complete', () => {
 		const all = allTriageLabels(DEFAULT_TRIAGE_LABELS);
-		expect(all).toHaveLength(10);
+		expect(all).toHaveLength(11);
 		expect(all).not.toContain(DEFAULT_TRIAGE_LABELS.prFixVerified);
 
 		const retriageable = retriageableLabels(DEFAULT_TRIAGE_LABELS);
 		const terminal = terminalLabels(DEFAULT_TRIAGE_LABELS);
 		for (const label of retriageable) expect(terminal).not.toContain(label);
-		// fixPending is neither retriageable nor terminal: it routes to verify-fix.
+		// fixPending and inProgress have dedicated FSM routes.
 		expect([...retriageable, ...terminal]).toHaveLength(9);
+		expect(all).toEqual(
+			expect.arrayContaining([DEFAULT_TRIAGE_LABELS.fixPending, DEFAULT_TRIAGE_LABELS.inProgress]),
+		);
 	});
 
 	it('finds the current triage label among unrelated labels', () => {

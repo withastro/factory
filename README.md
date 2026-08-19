@@ -66,6 +66,10 @@ labels (visible, maintainer-overridable):
   [preview release](#preview-releases) when configured, generates the triage
   comment from the pipeline's `report.md`, applies the resolved state label,
   and selects priority/package labels.
+- While the pipeline runs, the issue carries `triage: in progress` and one
+  delivery-scoped comment updates a checkbox list as each durable stage
+  completes. The same comment becomes the final report, so workflow retries do
+  not create duplicate status comments.
 - Comment on `triage: fix pending` → the FixVerifier agent classifies the
   reporter's response: confirmed → open the fix PR + `fix verified`;
   rejected → `fix rejected`.
@@ -112,6 +116,7 @@ triage:
   #   checkApp: github-actions         # app that must have created that check
   #   allowedHosts: [pkg.pr.new]       # hosts trusted to serve preview packages
   # labels:
+  #   inProgress: bot-working
   #   fixPending: awaiting-confirmation
 ```
 
