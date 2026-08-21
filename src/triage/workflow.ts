@@ -53,6 +53,7 @@ import {
 	type TriageWorkflowParams,
 	triageCoordinatorKey,
 	triageWorkflowParamsSchema,
+	validateFixVerdict,
 } from './contracts.ts';
 import { defaultTriageSkill } from './default-skill.ts';
 import {
@@ -60,6 +61,7 @@ import {
 	formatFailureComment,
 	MAX_TRIAGE_FAILURES,
 } from './failure.ts';
+import { acknowledgeRejectedFix, MAX_FIX_RETRIES } from './fix-verification.ts';
 import { route, type TriageAction } from './fsm.ts';
 import {
 	allTriageLabels,
@@ -135,6 +137,11 @@ interface PreviewReleaseOutcome {
 	/** Pre-rendered install instructions, or null when there is no preview. */
 	section: string | null;
 	detail: string;
+}
+
+interface FixBranch {
+	name: string;
+	headSha?: string;
 }
 
 /**
@@ -249,7 +256,9 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					await this.retriage(step, client, credentials, params, routed),
 				);
 			case 'verify-fix':
-				return finish(await this.verifyFix(step, client, params, routed));
+				return finish(
+					await this.verifyFix(step, client, credentials, params, routed),
+				);
 		}
 	}
 
@@ -266,6 +275,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 		credentials: GitHubCredentials,
 		params: TriageWorkflowParams,
 		routed: RoutedIssue,
+		fixBranch: FixBranch = { name: fixBranchName(params.issueNumber) },
 	): Promise<TriageWorkflowOutcome> {
 		const { issue, triage } = routed;
 		if (
@@ -343,6 +353,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				credentials,
 				params,
 				routed,
+				fixBranch,
 				progress,
 				progressComment,
 			);
@@ -390,11 +401,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 		credentials: GitHubCredentials,
 		params: TriageWorkflowParams,
 		routed: RoutedIssue,
+		fixBranch: FixBranch,
 		progress: TriageProgressState,
 		progressComment: { id: number | null },
 	): Promise<TriageWorkflowOutcome> {
 		const { issue, triage } = routed;
-		const branch = fixBranchName(params.issueNumber);
+		const branch = fixBranch.name;
 
 		const skill = await step.do(
 			'resolve triage skill',
@@ -437,6 +449,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				repo: params.repo,
 				defaultBranch: params.defaultBranch,
 				fixBranch: branch,
+				fixBranchHead: fixBranch.headSha,
 				skill,
 				cloneToken,
 			});
@@ -461,6 +474,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 			conversation: issue.conversation,
 			defaultBranch: params.defaultBranch,
 			fixBranch: branch,
+			continuingFix: fixBranch.headSha !== undefined,
 			skillName: skill.name,
 			skillDirectory: skill.directory,
 			model: triage.model,
@@ -736,10 +750,15 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				async () => {
 					const changes = await workspaceHasChanges(
 						sandbox(),
-						params.defaultBranch,
+						fixBranch.headSha ?? params.defaultBranch,
 					);
-					if (!changes.diff && !changes.dirty)
-						return { pushed: false, detail: 'no changes' };
+					if (!changes.diff && !changes.dirty) {
+						// A continuing run that changed nothing has nothing to push:
+						// the branch already points at exactly this tree.
+						return fixBranch.headSha
+							? { pushed: true, detail: 'candidate unchanged' }
+							: { pushed: false, detail: 'no changes' };
+					}
 					// The token exists only inside this step and is scoped to
 					// repository contents.
 					const token = await createScopedInstallationToken(
@@ -1239,6 +1258,56 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 			return { outcome: 'no-retriage', reason: decision.reasoning };
 		}
 
+		// A rejected candidate the reporter has now described is the same
+		// continuing-fix run `verifyFix` would have started, one comment later:
+		// keep the parts that already work instead of starting over.
+		const fixBranch =
+			issue.currentLabel === triage.labels.fixRejected
+				? await this.findFixBranch(step, client, params)
+				: null;
+
+		return this.restartTriage(
+			step,
+			client,
+			credentials,
+			params,
+			routed,
+			fixBranch ?? undefined,
+		);
+	}
+
+	/** The fix branch for this issue and the commit it currently points at. */
+	private findFixBranch(
+		step: WorkflowStep,
+		client: () => Promise<InstallationClient>,
+		params: TriageWorkflowParams,
+	): Promise<FixBranch | null> {
+		return step.do('find fix branch', STEP_RETRIES, async () => {
+			const api = await client();
+			const name = await findExistingBranch(api, params.owner, params.repo, [
+				fixBranchName(params.issueNumber),
+				...legacyFixBranchNames(params.issueNumber),
+			]);
+			if (!name) return null;
+			const headSha = await getBranchHeadSha(
+				api,
+				params.owner,
+				params.repo,
+				name,
+			);
+			return headSha ? { name, headSha } : null;
+		});
+	}
+
+	private async restartTriage(
+		step: WorkflowStep,
+		client: () => Promise<InstallationClient>,
+		credentials: GitHubCredentials,
+		params: TriageWorkflowParams,
+		routed: RoutedIssue,
+		fixBranch?: FixBranch,
+	): Promise<TriageWorkflowOutcome> {
+		const { issue, triage } = routed;
 		await step.do('swap label to needs-triage', STEP_RETRIES, async () => {
 			const api = await client();
 			await ensureLabelExists(
@@ -1259,28 +1328,30 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 		});
 
 		// New actionable information — run the full pipeline from the staging label.
-		return this.triage(step, client, credentials, params, {
-			...routed,
-			issue: { ...issue, currentLabel: triage.labels.needsTriage },
-		});
+		return this.triage(
+			step,
+			client,
+			credentials,
+			params,
+			{
+				...routed,
+				issue: { ...issue, currentLabel: triage.labels.needsTriage },
+			},
+			fixBranch,
+		);
 	}
 
 	private async verifyFix(
 		step: WorkflowStep,
 		client: () => Promise<InstallationClient>,
+		credentials: GitHubCredentials,
 		params: TriageWorkflowParams,
 		routed: RoutedIssue,
 	): Promise<TriageWorkflowOutcome> {
 		const { issue, triage } = routed;
 
-		const branch = await step.do('find fix branch', STEP_RETRIES, async () => {
-			const api = await client();
-			return findExistingBranch(api, params.owner, params.repo, [
-				fixBranchName(params.issueNumber),
-				...legacyFixBranchNames(params.issueNumber),
-			]);
-		});
-		if (!branch) {
+		const fixBranch = await this.findFixBranch(step, client, params);
+		if (!fixBranch) {
 			return {
 				outcome: 'skipped',
 				reason: `No fix branch found for issue #${params.issueNumber}.`,
@@ -1309,7 +1380,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					issueNumber: params.issueNumber,
 					issueTitle: issue.title,
 					issueBody: issue.body,
-					branch,
+					branch: fixBranch.name,
 					defaultBranch: params.defaultBranch,
 					conversation: issue.conversation.slice(-10),
 					latestComment: issue.latestNonBotComment,
@@ -1332,7 +1403,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 			},
 			async () => {
 				const reply = await agent.read(receipt);
-				return extractLastWrite('verdict', reply.data, fixVerdictSchema);
+				const verdict = extractLastWrite(
+					'verdict',
+					reply.data,
+					fixVerdictSchema,
+				);
+				return validateFixVerdict(verdict);
 			},
 		);
 
@@ -1359,7 +1435,48 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					triage.labels.fixRejected,
 				);
 			});
-			return { outcome: 'fix-rejected' };
+			// The verifier has already read the comment, so what happens next is
+			// decided from its verdict rather than from another agent run — and
+			// long before a pipeline run has been spent on it.
+			const action = await step.do(
+				'acknowledge rejected fix',
+				STEP_RETRIES,
+				async () => {
+					const api = await client();
+					return acknowledgeRejectedFix(api, {
+						owner: params.owner,
+						repo: params.repo,
+						issueNumber: params.issueNumber,
+						deliveryId: params.deliveryId,
+						feedback: verdict.feedback ?? 'vague',
+					});
+				},
+			);
+			// `fix rejected` is re-triageable, so the reporter's next comment
+			// runs the RetriageJudge and picks the candidate back up from there.
+			if (action === 'needs-details') {
+				return {
+					outcome: 'fix-rejected',
+					reason: 'Asked the reporter what is still broken before retrying.',
+				};
+			}
+			if (action === 'retry-limit') {
+				return {
+					outcome: 'fix-rejected',
+					reason: `Reached ${MAX_FIX_RETRIES} automatic fix retries; left for a maintainer.`,
+				};
+			}
+			return this.restartTriage(
+				step,
+				client,
+				credentials,
+				params,
+				{
+					...routed,
+					issue: { ...issue, currentLabel: triage.labels.fixRejected },
+				},
+				fixBranch,
+			);
 		}
 
 		const pullRequest = await step.do(
@@ -1371,14 +1488,14 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					api,
 					params.owner,
 					params.repo,
-					branch,
+					fixBranch.name,
 				);
 				if (existing) return { ...existing, created: false };
 				const created = await openFixPullRequest(
 					api,
 					params,
 					triage,
-					branch,
+					fixBranch.name,
 					verdict,
 				);
 				return { ...created, created: true };

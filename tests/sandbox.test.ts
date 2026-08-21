@@ -7,6 +7,8 @@ import {
 	BUILD_TIMEOUT_SECONDS,
 	checkoutCommandScript,
 	commandStageLabel,
+	existingFixFetchScript,
+	fixBranchCheckoutCommand,
 	INSTALL_TIMEOUT_SECONDS,
 	REPO_DIR,
 	redactToken,
@@ -54,6 +56,30 @@ describe('triage sandbox helpers', () => {
 		expect(shellQuote(script)).toBe(
 			`'cd /repo && git clone https://example.com/x.git || true'`,
 		);
+	});
+
+	it('pins a retried fix branch to the verified commit', () => {
+		const sha = 'a'.repeat(40);
+		const fetch = existingFixFetchScript('factory/fix-139', sha);
+		expect(fetch).toContain(
+			"fetch --no-tags origin 'refs/heads/factory/fix-139'",
+		);
+		expect(fetch).toContain(`[ "$fetched" = '${sha}' ]`);
+		// A branch that moved has to say so: the pin fails every retry, and
+		// `test` alone would fail with nothing on stderr.
+		expect(fetch).toContain('moved to $fetched');
+		expect(fixBranchCheckoutCommand('factory/fix-139', sha)).toBe(
+			`git checkout -B 'factory/fix-139' '${sha}'`,
+		);
+		expect(fixBranchCheckoutCommand('factory/fix-140')).toBe(
+			`git checkout -B 'factory/fix-140'`,
+		);
+	});
+
+	it('rejects an unsafe fix commit before building git commands', () => {
+		expect(() =>
+			existingFixFetchScript('factory/fix-139', 'main; rm -rf /'),
+		).toThrow('Unsafe git commit');
 	});
 
 	it('names the stage and position of a command that fails', () => {

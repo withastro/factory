@@ -4,12 +4,12 @@
  * and edit code.
  *
  * Security model:
- * - Public repositories clone anonymously (blobless, single branch), so the
+ * - Public repositories clone anonymously (blobless), so the
  *   sandbox holds no credentials while the agent runs; lazy blob fetches
  *   from origin stay anonymous too.
- * - Private repositories clone with a short-lived contents-read token passed
- *   as a one-shot `http.extraHeader` — never written to git config — and get
- *   a *full* single-branch clone so nothing ever needs the network again;
+ * - Private repositories clone and fetch with a short-lived contents-read
+ *   token passed as an ephemeral `http.extraHeader` — never written to git
+ *   config — and get a full checkout so nothing needs the network afterward;
  *   the origin remote is then removed entirely. Either way, the agent runs
  *   with zero usable GitHub credentials.
  * - The push step injects a short-lived, contents-only installation token
@@ -26,6 +26,8 @@ import {
 	assertRepoIdentifier,
 	checkoutCommandScript,
 	commandStageLabel,
+	existingFixFetchScript,
+	fixBranchCheckoutCommand,
 	REPO_DIR,
 	redactToken,
 	shellQuote,
@@ -65,18 +67,19 @@ export interface WorkspaceSetup {
 	repo: string;
 	defaultBranch: string;
 	fixBranch: string;
+	/** Existing fix commit to extend instead of starting from the default branch. */
+	fixBranchHead?: string;
 	skill: SkillSnapshot;
 	/**
 	 * Contents-read installation token; required for private repositories.
-	 * Used once during clone via `http.extraHeader` and never persisted.
+	 * Used during checkout via `http.extraHeader` and never persisted.
 	 */
 	cloneToken?: string;
 }
 
 /**
- * Prepare `/repo`: staged hardened clone of the default branch, git identity,
- * the fix branch checked out, skill files seeded, and scratch paths excluded
- * from git.
+ * Prepare `/repo`: staged hardened clone, git identity, the requested fix
+ * branch checked out, skill files seeded, and scratch paths excluded from git.
  */
 export async function setupTriageWorkspace(
 	sandbox: TriageSandbox,
@@ -94,10 +97,10 @@ export async function setupTriageWorkspace(
 		30,
 	);
 
-	// Public: blobless single-branch clone — full history for git blame/diff,
+	// Public: blobless default-branch clone — full history for git blame/diff,
 	// blobs fetched anonymously on demand.
-	// Private: full single-branch clone with one-shot header auth, so the
-	// checkout is self-contained and no credential outlives this command.
+	// Private: full default-branch clone with ephemeral header auth, so the
+	// checkout is self-contained and no credential outlives this step.
 	const cloneUrl = `https://github.com/${setup.owner}/${setup.repo}.git`;
 	const authConfig = setup.cloneToken
 		? `-c http.extraHeader=${shellQuote(`Authorization: basic ${btoa(`x-access-token:${setup.cloneToken}`)}`)} `
@@ -116,6 +119,19 @@ export async function setupTriageWorkspace(
 		900,
 	);
 
+	if (setup.fixBranchHead) {
+		await execOrThrow(
+			sandbox,
+			'fetch existing fix',
+			existingFixFetchScript(
+				setup.fixBranch,
+				setup.fixBranchHead,
+				setup.cloneToken,
+			),
+			900,
+		);
+	}
+
 	await execOrThrow(
 		sandbox,
 		'configure',
@@ -123,7 +139,7 @@ export async function setupTriageWorkspace(
 			`cd ${REPO_DIR}`,
 			`git config user.name ${shellQuote('factory[bot]')}`,
 			`git config user.email ${shellQuote('factory[bot]@users.noreply.github.com')}`,
-			`git checkout -B ${shellQuote(setup.fixBranch)}`,
+			fixBranchCheckoutCommand(setup.fixBranch, setup.fixBranchHead),
 			// A private checkout is self-contained; remove the remote so the
 			// agent has nothing to fetch from or push to.
 			...(setup.cloneToken ? ['git remote remove origin'] : []),
@@ -191,12 +207,18 @@ export async function runCheckoutCommands(
 	}
 }
 
-/** True when the working tree differs from the default branch or is dirty. */
+/**
+ * True when the working tree differs from `baseRef` or is dirty.
+ *
+ * `baseRef` is the default branch for a fresh run, and the candidate commit
+ * the run started from when continuing an existing fix — comparing that one
+ * against the default branch would report the previous fix as a change.
+ */
 export async function workspaceHasChanges(
 	sandbox: TriageSandbox,
-	defaultBranch: string,
+	baseRef: string,
 ): Promise<{ diff: boolean; dirty: boolean }> {
-	assertGitRef(defaultBranch);
+	assertGitRef(baseRef);
 	const status = await execOrThrow(
 		sandbox,
 		'status',
@@ -206,7 +228,7 @@ export async function workspaceHasChanges(
 	const diff = await execOrThrow(
 		sandbox,
 		'diff',
-		`cd ${REPO_DIR} && git diff ${shellQuote(defaultBranch)} --stat`,
+		`cd ${REPO_DIR} && git diff ${shellQuote(baseRef)} --stat`,
 		120,
 	);
 	return {

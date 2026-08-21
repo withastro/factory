@@ -73,10 +73,16 @@ labels (visible, maintainer-overridable):
   completes. The same comment becomes the final report, so workflow retries do
   not create duplicate status comments.
 - Comment on `triage: fix pending` → the FixVerifier agent classifies the
-  reporter's response: confirmed → open the fix PR + `fix verified`;
-  rejected → `fix rejected`.
+  reporter's response: confirmed → open the fix PR + `fix verified`. Rejected
+  or partially fixed moves to `fix rejected`, and the same verdict says whether
+  the feedback names what is still broken: if it does, triage continues
+  immediately from the existing candidate on the same fix branch; if it is only
+  "still broken", the bot asks what is still wrong and waits rather than
+  spending a pipeline run on a guess. Three retried candidates is the limit,
+  after which the issue is left for a maintainer.
 - Comment on a re-triageable label → the RetriageJudge agent decides whether
-  new actionable information warrants a re-run.
+  new actionable information warrants a re-run. A re-run of a `fix rejected`
+  issue continues from the existing candidate.
 - Issue closed → the fix branch is deleted. A closed issue is then out of
   scope whatever its triage label says: comments on it neither verify a fix nor
   re-triage, so nothing pushes a branch or opens a pull request for an issue a
