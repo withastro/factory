@@ -1,0 +1,45 @@
+README.md
+  s_41379388a32b7f::t_a0ce4a0bbdf292 50-52
+src/review/agents/pull-request-reviewer.ts
+  s_41379388a32b7f::t_281c77873727dd 15,37-41,61,63-65,73,79-82
+src/review/agents/tools/github-read.ts
+  s_41379388a32b7f::t_304685b5f0b306 10-20,26-27,38-55,63-64,109-111,132-133,153-157,178-184,208-212,218-222
+src/review/agents/tools/submit-review.ts
+  s_41379388a32b7f::t_2fc146c0d199f1 11
+src/review/contracts.ts
+  s_41379388a32b7f::t_d13bbde7aae009 6-32,69-75,89,91,104-115,127-129,131-133,147-157
+src/review/diff.ts
+  s_41379388a32b7f::t_9f077007143939 85-95,107-117,138-139
+src/review/follow-up.ts
+  s_41379388a32b7f::t_4a1e0ff4c9ce71 1-452
+src/review/result.ts
+  s_41379388a32b7f::t_abb9ad83b3b663 8,12-14,16-19
+src/review/setup.ts
+  s_41379388a32b7f::t_7fe013a58b7498 8-12,52-55,72-74,76-79,118
+src/review/workflow.ts
+  s_41379388a32b7f::t_1593039989b1e5 18,23-24,26-29,34-37,43-45,50-52,85-88,98-117,125-128,134,136,148-151,161-164,199,215-218,223-225,237-240,254-284
+tests/review-diff.test.ts
+  s_41379388a32b7f::t_721542d589ba03 6,55,62-64,73,85,94-97,99-103,114-127
+tests/review-follow-up.test.ts
+  s_41379388a32b7f::t_60da83b8c97826 1-390
+tests/review-publish.test.ts
+  s_41379388a32b7f::t_2dce6775dd0ce3 5-8,19,37-40,63-64
+tests/review-result.test.ts
+  s_41379388a32b7f::t_a59547cbd4175d 13-14,20-24,32-36,53,61-63,70-104,107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e79a2b25b05175f9b404068f40cf74d7754e4763",
+  "prompts": {},
+  "sessions": {
+    "s_41379388a32b7f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdc19178affeNEfd5N3nXcS6yk",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "ematipico <estoppa@cloudflare.com>"
+    }
+  }
+}
