@@ -183,6 +183,46 @@ describe('review follow-up loading', () => {
 		]);
 	});
 
+	it('loads a Factory thread even when the installation cannot resolve it', async () => {
+		const graphql = vi.fn(async (query: string) => {
+			if (query.includes('LatestFactoryReviews')) {
+				return {
+					repository: {
+						pullRequest: {
+							reviews: {
+								nodes: [review('review-latest')],
+								pageInfo: { hasPreviousPage: false, startCursor: null },
+							},
+						},
+					},
+				};
+			}
+			return {
+				repository: {
+					pullRequest: {
+						reviewThreads: {
+							nodes: [
+								thread('thread-latest', 'review-latest', {
+									canResolve: false,
+								}),
+							],
+							pageInfo: { hasNextPage: false, endCursor: null },
+						},
+					},
+				},
+			};
+		});
+
+		await expect(
+			loadLatestUnresolvedReviewThreads(
+				{ graphql } as unknown as InstallationClient,
+				input,
+			),
+		).resolves.toEqual([
+			expect.objectContaining({ threadId: 'thread-latest' }),
+		]);
+	});
+
 	it('paginates backward for the latest Factory review and forward for its threads', async () => {
 		const graphql = vi.fn(
 			async (query: string, variables: { before?: string; after?: string }) => {
@@ -470,6 +510,98 @@ describe('review follow-up resolution', () => {
 			stale: false,
 		});
 		expect(graphql).toHaveBeenCalledOnce();
+	});
+
+	it('attempts resolution instead of trusting viewerCanResolve for an installation', async () => {
+		const selected = snapshot();
+		const graphql = vi.fn(async (query: string) => {
+			if (query.includes('RevalidateFactoryReviewThreads')) {
+				return {
+					nodes: [currentThread(selected, { viewerCanResolve: false })],
+				};
+			}
+			return {
+				resolveReviewThread: {
+					thread: { id: selected.threadId, isResolved: true },
+				},
+			};
+		});
+		const client = {
+			graphql,
+			rest: {
+				pulls: {
+					get: vi.fn(async () => ({
+						data: { state: 'open', head: { sha: HEAD_SHA } },
+					})),
+				},
+			},
+		} as unknown as InstallationClient;
+
+		await expect(
+			resolveAddressedReviewThreads(
+				client,
+				{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
+				[selected],
+				[selected.threadId],
+			),
+		).resolves.toEqual({
+			resolved: 1,
+			alreadyResolved: 0,
+			skipped: 0,
+			stale: false,
+		});
+		expect(graphql).toHaveBeenCalledTimes(2);
+		expect(graphql.mock.calls[0]?.[0]).not.toContain('viewerCanResolve');
+	});
+
+	it('skips a selected thread when GitHub rejects the mutation as forbidden', async () => {
+		const selected = snapshot();
+		const graphql = vi.fn(async (query: string) => {
+			if (query.includes('RevalidateFactoryReviewThreads')) {
+				return { nodes: [currentThread(selected)] };
+			}
+			throw Object.assign(new Error('Resource not accessible by integration'), {
+				errors: [
+					{
+						type: 'FORBIDDEN',
+						message: 'Resource not accessible by integration',
+					},
+				],
+			});
+		});
+		const client = {
+			graphql,
+			rest: {
+				pulls: {
+					get: vi.fn(async () => ({
+						data: { state: 'open', head: { sha: HEAD_SHA } },
+					})),
+				},
+			},
+		} as unknown as InstallationClient;
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+		try {
+			await expect(
+				resolveAddressedReviewThreads(
+					client,
+					{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
+					[selected],
+					[selected.threadId],
+				),
+			).resolves.toEqual({
+				resolved: 0,
+				alreadyResolved: 0,
+				skipped: 1,
+				stale: false,
+			});
+			expect(warn).toHaveBeenCalledWith(
+				`Factory cannot resolve review thread ${selected.threadId}; leaving it unresolved.`,
+			);
+		} finally {
+			warn.mockRestore();
+		}
+		expect(graphql).toHaveBeenCalledTimes(2);
 	});
 
 	it('rejects thread IDs that were not supplied to the agent', async () => {

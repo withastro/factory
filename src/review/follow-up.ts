@@ -50,7 +50,6 @@ const REVIEW_THREADS_QUERY = `
 						id
 						isResolved
 						isOutdated
-						viewerCanResolve
 						path
 						line
 						originalLine
@@ -88,7 +87,6 @@ const REVALIDATE_THREADS_QUERY = `
 			... on PullRequestReviewThread {
 				id
 				isResolved
-				viewerCanResolve
 				repository { nameWithOwner }
 				pullRequest { number }
 				comments(first: 1) {
@@ -187,7 +185,6 @@ interface ReviewThreadNode {
 	id: string;
 	isResolved: boolean;
 	isOutdated: boolean;
-	viewerCanResolve: boolean;
 	path: string;
 	line: number | null;
 	originalLine: number | null;
@@ -214,7 +211,6 @@ interface RevalidateThreadsResponse {
 		__typename: string;
 		id?: string;
 		isResolved?: boolean;
-		viewerCanResolve?: boolean;
 		repository?: { nameWithOwner: string };
 		pullRequest?: { number: number };
 		comments?: {
@@ -265,11 +261,6 @@ export async function loadLatestUnresolvedReviewThreads(
 			if (!thread || thread.isResolved) continue;
 			const comment = thread.comments.nodes?.[0];
 			if (!comment || comment.pullRequestReview?.id !== review.id) continue;
-			if (!thread.viewerCanResolve) {
-				throw new Error(
-					`Factory cannot resolve its review thread ${thread.id}.`,
-				);
-			}
 			threads.push({
 				threadId: thread.id,
 				commentId: comment.id,
@@ -389,19 +380,23 @@ export async function resolveAddressedReviewThreads(
 			alreadyResolved += 1;
 			continue;
 		}
-		if (!current.viewerCanResolve) {
-			throw new Error(
-				`Factory can no longer resolve review thread ${threadId}.`,
+		let mutation: ResolveThreadResponse;
+		try {
+			mutation = await client.graphql<ResolveThreadResponse>(
+				RESOLVE_THREAD_MUTATION,
+				{
+					threadId,
+					clientMutationId: `${input.deliveryId}:${threadId}`,
+				},
 			);
+		} catch (error) {
+			if (!isForbiddenGraphqlResponse(error)) throw error;
+			console.warn(
+				`Factory cannot resolve review thread ${threadId}; leaving it unresolved.`,
+			);
+			skipped += 1;
+			continue;
 		}
-
-		const mutation = await client.graphql<ResolveThreadResponse>(
-			RESOLVE_THREAD_MUTATION,
-			{
-				threadId,
-				clientMutationId: `${input.deliveryId}:${threadId}`,
-			},
-		);
 		if (
 			mutation.resolveReviewThread?.thread?.id !== threadId ||
 			mutation.resolveReviewThread.thread.isResolved !== true
@@ -412,6 +407,21 @@ export async function resolveAddressedReviewThreads(
 	}
 
 	return { resolved, alreadyResolved, skipped, stale: false };
+}
+
+function isForbiddenGraphqlResponse(error: unknown): boolean {
+	if (!error || typeof error !== 'object' || !('errors' in error)) return false;
+	const errors = error.errors;
+	return (
+		Array.isArray(errors) &&
+		errors.some(
+			(entry) =>
+				entry !== null &&
+				typeof entry === 'object' &&
+				'type' in entry &&
+				entry.type === 'FORBIDDEN',
+		)
+	);
 }
 
 async function findLatestFactoryReview(
