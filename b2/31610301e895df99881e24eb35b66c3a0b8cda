@@ -1,0 +1,73 @@
+README.md
+  s_66535baf04224f::t_dec74879a8d6b6 50-52,71-74,122
+src/channels/github.ts
+  s_66535baf04224f::t_373b77a8a07328 14,25,31,37,47,75-77,82,85-156
+src/github/issues.ts
+  s_66535baf04224f::t_aba8bc82da19f4 103-117,206-222,229-320
+src/review/agents/pull-request-reviewer.ts
+  s_66535baf04224f::t_4e630452d81db6 15,21-25,41-45,65,67-69,77,83-86
+src/review/agents/tools/github-read.ts
+  s_66535baf04224f::t_065e938efe00aa 10-20,26-27,38-55,63-64,109-111,132-133,153-157,178-184,208-212,218-222
+src/review/agents/tools/submit-review.ts
+  s_66535baf04224f::t_0d03b329ce54ea 11
+src/review/contracts.ts
+  s_66535baf04224f::t_572e2044293980 6-34,71-77,91,93,106-117,129-131,133-135,149-159
+src/review/diff.ts
+  s_66535baf04224f::t_ccd222201c2601 85-95,107-117,138-139
+src/review/follow-up.ts
+  s_66535baf04224f::t_bc84ccd7b36f06 1-522
+src/review/result.ts
+  s_66535baf04224f::t_e3a789e2fac3b1 8,12-14,16-45
+src/review/setup.ts
+  s_66535baf04224f::t_442f5ce694c2b4 8-12,52-55,72-74,76-79,118
+src/review/workflow.ts
+  s_66535baf04224f::t_be35e40f7ce020 18,23-24,26-29,31,34-37,43-45,50-52,85-88,98-117,125-128,134,136,148-151,161-164,199,213,215-218,223-225,229-234,243-246,260-290
+src/triage/failure.ts
+  s_66535baf04224f::t_e9c5e2f617caef 14-16
+src/triage/fsm.ts
+  s_66535baf04224f::t_9af069a9c8e00d 60-66
+src/triage/labels.ts
+  s_66535baf04224f::t_9d608ea6ede80f 12,28,49,66
+src/triage/progress.ts
+  s_66535baf04224f::t_cde7d22421fe85 1-76
+src/triage/sandbox.ts
+  s_66535baf04224f::t_8a9b226e82187c 155-166,279
+tests/classification-labels.test.ts
+  s_66535baf04224f::t_5acbebdb2bf995 1-67
+tests/github-issues.test.ts
+  s_66535baf04224f::t_0123714bde9cc8 1-114
+tests/review-diff.test.ts
+  s_66535baf04224f::t_7c852e4a270bd4 6,55,62-64,73,85,94-97,99-103,114-127
+tests/review-follow-up.test.ts
+  s_66535baf04224f::t_9a8aeaef9cdb63 1-442
+tests/review-publish.test.ts
+  s_66535baf04224f::t_ba70dcc7a606ee 5-8,19,37-40,63-64
+tests/review-result.test.ts
+  s_66535baf04224f::t_20b62d60ec40c5 2-5,16-17,23-44,52-56,73,81-83,90-124,127
+tests/sandbox.test.ts
+  s_66535baf04224f::t_26b26442a1cd4d 1-5,83-99
+tests/triage-failure.test.ts
+  s_66535baf04224f::t_586729c1f06f60 10,21,23,25,39-43
+tests/triage-fsm.test.ts
+  s_66535baf04224f::t_624c9e9804e9ef 40-48
+tests/triage-labels.test.ts
+  s_66535baf04224f::t_ed3e1b86231e65 15,21,23-25
+tests/triage-progress.test.ts
+  s_66535baf04224f::t_46f3f9ea3f7ba3 1-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b231610301e895df99881e24eb35b66c3a0b8cda",
+  "prompts": {},
+  "sessions": {
+    "s_66535baf04224f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdbbe0b19ffe3d6a2IGFUKTALM",
+        "model": "@cf/deepseek-ai/deepseek-v4-flash"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    }
+  }
+}
