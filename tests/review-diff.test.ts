@@ -3,6 +3,7 @@ import type { Finding, ReviewResult } from '../src/review/contracts.ts';
 import {
 	commentableLines,
 	formatReviewBody,
+	parseReviewMarker,
 	prepareReview,
 	REVIEW_DISCLOSURE,
 	reviewMarker,
@@ -51,13 +52,16 @@ describe('GitHub diff locations', () => {
 	it('keeps only valid unique locations inline and preserves all others', () => {
 		const result: ReviewResult = {
 			summary: 'Review summary',
+			addressedThreadIds: [],
 			findings: [
 				finding(),
 				finding({ title: 'Duplicate location' }),
 				finding({ path: 'src/other.ts', line: 1 }),
 			],
 		};
-		const prepared = prepareReview(result, [{ filename: 'src/example.ts', patch }]);
+		const prepared = prepareReview(result, [
+			{ filename: 'src/example.ts', patch },
+		]);
 
 		expect(prepared.inline).toEqual([result.findings[0]]);
 		expect(prepared.unanchored).toEqual(result.findings.slice(1));
@@ -66,7 +70,7 @@ describe('GitHub diff locations', () => {
 	it('includes explanatory text for findings that cannot be anchored', () => {
 		const item = finding({ path: 'src/other.ts', line: 7, side: 'LEFT' });
 		const body = formatReviewBody(
-			{ summary: 'Review summary', findings: [item] },
+			{ summary: 'Review summary', findings: [item], addressedThreadIds: [] },
 			[item],
 			'<!-- marker -->',
 		);
@@ -78,7 +82,7 @@ describe('GitHub diff locations', () => {
 
 	it('ends every review with the mandatory italic LLM disclosure', () => {
 		const body = formatReviewBody(
-			{ summary: 'No issues found.', findings: [] },
+			{ summary: 'No issues found.', findings: [], addressedThreadIds: [] },
 			[],
 			'<!-- marker -->',
 		);
@@ -87,9 +91,16 @@ describe('GitHub diff locations', () => {
 	});
 
 	it('contains model-authored Markdown that could hide the disclosure', () => {
-		const item = finding({ title: '<!-- hidden', body: '```ts\nconst broken = true;' });
+		const item = finding({
+			title: '<!-- hidden',
+			body: '```ts\nconst broken = true;',
+		});
 		const body = formatReviewBody(
-			{ summary: '<!-- unclosed comment', findings: [item] },
+			{
+				summary: '<!-- unclosed comment',
+				findings: [item],
+				addressedThreadIds: [],
+			},
 			[item],
 			'<!-- marker -->',
 		);
@@ -100,6 +111,19 @@ describe('GitHub diff locations', () => {
 	});
 
 	it('brands the idempotency marker as the factory', () => {
-		expect(reviewMarker('d-1', 'abc')).toBe('<!-- factory-review:delivery=d-1:head=abc -->');
+		expect(reviewMarker('d-1', 'abc')).toBe(
+			'<!-- factory-review:delivery=d-1:head=abc -->',
+		);
+	});
+
+	it('parses valid Factory review markers', () => {
+		const headSha = 'a'.repeat(40);
+		expect(parseReviewMarker(reviewMarker('delivery-id', headSha))).toEqual({
+			deliveryId: 'delivery-id',
+			headSha,
+		});
+		expect(
+			parseReviewMarker('<!-- factory-review:delivery=x:head=abc -->'),
+		).toBeUndefined();
 	});
 });

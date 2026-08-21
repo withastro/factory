@@ -47,7 +47,9 @@ bundled review skill, or a repository-provided override, and publishes
 validated findings as a PR review (inline comments anchored against the real
 diff, the rest in the body, always with an LLM disclosure). Repository config
 and skill overrides are read at the target branch's tip SHA captured at webhook
-time — never from the PR head.
+time — never from the PR head. When review is triggered again, the agent also
+rechecks unresolved inline threads from its latest prior review and resolves
+only those it determines have been addressed.
 
 ### Triage (`src/triage/`)
 
@@ -66,6 +68,10 @@ labels (visible, maintainer-overridable):
   [preview release](#preview-releases) when configured, generates the triage
   comment from the pipeline's `report.md`, applies the resolved state label,
   and selects priority/package labels.
+- While the pipeline runs, the issue carries `triage: in progress` and one
+  delivery-scoped comment updates a checkbox list as each durable stage
+  completes. The same comment becomes the final report, so workflow retries do
+  not create duplicate status comments.
 - Comment on `triage: fix pending` → the FixVerifier agent classifies the
   reporter's response: confirmed → open the fix PR + `fix verified`;
   rejected or partially fixed → acknowledge the feedback and immediately
@@ -113,6 +119,7 @@ triage:
   #   checkApp: github-actions         # app that must have created that check
   #   allowedHosts: [pkg.pr.new]       # hosts trusted to serve preview packages
   # labels:
+  #   inProgress: bot-working
   #   fixPending: awaiting-confirmation
 ```
 

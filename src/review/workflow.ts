@@ -14,31 +14,42 @@ import { removeLabelIfPresent } from '../github/issues.ts';
 import { PullRequestReviewer } from './agents/pull-request-reviewer.ts';
 import {
 	completeReviewCheck,
-	startReviewCheck,
 	type ReviewCheckInput,
+	startReviewCheck,
 } from './checks.ts';
 import {
-	reviewCoordinatorKey,
-	reviewWorkflowParamsSchema,
 	type ReviewWorkflowOutcome,
 	type ReviewWorkflowParams,
+	reviewCoordinatorKey,
+	reviewWorkflowParamsSchema,
 } from './contracts.ts';
+import {
+	loadLatestUnresolvedReviewThreads,
+	resolveAddressedReviewThreads,
+} from './follow-up.ts';
 import { publishReview } from './publish.ts';
-import { extractReviewResult } from './result.ts';
+import { extractReviewResult, parseReviewResult } from './result.ts';
 import { loadReviewSetup } from './setup.ts';
 
-export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflowParams> {
+export class ReviewWorkflow extends WorkflowEntrypoint<
+	WorkerEnv,
+	ReviewWorkflowParams
+> {
 	override async run(
 		event: Readonly<WorkflowEvent<ReviewWorkflowParams>>,
 		step: WorkflowStep,
 	): Promise<ReviewWorkflowOutcome> {
 		const trigger = v.parse(reviewWorkflowParamsSchema, event.payload);
-		const coordinator = this.env.REVIEW_COORDINATOR.getByName(reviewCoordinatorKey(trigger));
+		const coordinator = this.env.REVIEW_COORDINATOR.getByName(
+			reviewCoordinatorKey(trigger),
+		);
 		const completeCoordination = async () => {
 			const result = await coordinator.complete(trigger.deliveryId);
 			return {
 				completed: result.completed,
-				...(result.nextWorkflowId ? { nextWorkflowId: result.nextWorkflowId } : {}),
+				...(result.nextWorkflowId
+					? { nextWorkflowId: result.nextWorkflowId }
+					: {}),
 			};
 		};
 		await step.do(
@@ -71,7 +82,10 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 				timeout: '5 minutes',
 			},
 			async () => {
-				const client = await createInstallationClient(credentials, trigger.installationId);
+				const client = await createInstallationClient(
+					credentials,
+					trigger.installationId,
+				);
 				return loadReviewSetup(client, trigger);
 			},
 		);
@@ -81,6 +95,26 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 			return setup;
 		}
 
+		const unresolvedReviewThreads = await step.do(
+			'load unresolved threads from latest Factory review',
+			{
+				retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+				timeout: '5 minutes',
+			},
+			async () => {
+				const client = await createInstallationClient(
+					credentials,
+					trigger.installationId,
+				);
+				return loadLatestUnresolvedReviewThreads(client, {
+					owner: trigger.owner,
+					repo: trigger.repo,
+					pullNumber: trigger.pullNumber,
+				});
+			},
+		);
+		const agentInput = { ...setup.agentInput, unresolvedReviewThreads };
+
 		await step.do(
 			'remove trigger label',
 			{
@@ -88,15 +122,18 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 				timeout: '5 minutes',
 			},
 			async () => {
-				const client = await createInstallationClient(credentials, trigger.installationId);
+				const client = await createInstallationClient(
+					credentials,
+					trigger.installationId,
+				);
 				await removeLabelIfPresent(
 					client,
 					trigger.owner,
 					trigger.repo,
 					trigger.pullNumber,
-					setup.agentInput.triggerLabel,
+					agentInput.triggerLabel,
 				);
-				return setup.agentInput.triggerLabel;
+				return agentInput.triggerLabel;
 			},
 		);
 
@@ -108,7 +145,10 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 			deliveryId: trigger.deliveryId,
 		};
 		const completeCheck = async (checkRunId?: number) => {
-			const client = await createInstallationClient(credentials, trigger.installationId);
+			const client = await createInstallationClient(
+				credentials,
+				trigger.installationId,
+			);
 			await completeReviewCheck(client, checkInput, checkRunId);
 		};
 		const checkRunId = await step.do(
@@ -118,7 +158,10 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 				timeout: '5 minutes',
 			},
 			async () => {
-				const client = await createInstallationClient(credentials, trigger.installationId);
+				const client = await createInstallationClient(
+					credentials,
+					trigger.installationId,
+				);
 				return startReviewCheck(client, checkInput);
 			},
 			{
@@ -153,7 +196,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 		});
 		const receipt = await step.do('dispatch review agent', async () =>
 			agent.dispatch({
-				initialData: setup.agentInput,
+				initialData: agentInput,
 				idempotencyKey: trigger.deliveryId,
 				message: {
 					kind: 'signal',
@@ -167,17 +210,27 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 			}),
 		);
 
-		const result = await step.do(
+		const persistedResult = await step.do(
 			'read structured review result',
-			{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: '35 minutes' },
+			{
+				retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' },
+				timeout: '35 minutes',
+			},
 			async () => {
 				const reply = await agent.read(receipt);
 				return extractReviewResult(
 					reply.data,
-					setup.agentInput.severities,
-					setup.agentInput.areas,
+					agentInput.severities,
+					agentInput.areas,
+					unresolvedReviewThreads.map((thread) => thread.threadId),
 				);
 			},
+		);
+		const result = parseReviewResult(
+			persistedResult,
+			agentInput.severities,
+			agentInput.areas,
+			unresolvedReviewThreads.map((thread) => thread.threadId),
 		);
 
 		const outcome = await step.do(
@@ -187,7 +240,10 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 				timeout: '5 minutes',
 			},
 			async () => {
-				const client = await createInstallationClient(credentials, trigger.installationId);
+				const client = await createInstallationClient(
+					credentials,
+					trigger.installationId,
+				);
 				return publishReview(
 					client,
 					{
@@ -201,6 +257,37 @@ export class ReviewWorkflow extends WorkflowEntrypoint<WorkerEnv, ReviewWorkflow
 				);
 			},
 		);
+		if (
+			(outcome.outcome === 'published' ||
+				outcome.outcome === 'already-published') &&
+			result.addressedThreadIds.length > 0
+		) {
+			await step.do(
+				'resolve addressed Factory review threads',
+				{
+					retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+					timeout: '5 minutes',
+				},
+				async () => {
+					const client = await createInstallationClient(
+						credentials,
+						trigger.installationId,
+					);
+					return resolveAddressedReviewThreads(
+						client,
+						{
+							owner: trigger.owner,
+							repo: trigger.repo,
+							pullNumber: trigger.pullNumber,
+							headSha: trigger.headSha,
+							deliveryId: trigger.deliveryId,
+						},
+						unresolvedReviewThreads,
+						result.addressedThreadIds,
+					);
+				},
+			);
+		}
 		await finishCheck();
 		await finishCoordination();
 		return outcome;

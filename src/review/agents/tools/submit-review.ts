@@ -8,7 +8,7 @@ export function useSubmitReviewTool(
 	useTool({
 		name: 'submit_review_findings',
 		description:
-			'Submit the final structured review fields without GitHub comment formatting. Call exactly once after completing the review.',
+			'Submit the final structured review fields and the IDs of prior review threads that are now addressed. Call exactly once after completing the review.',
 		input: schema,
 		run({ data }) {
 			writeReview(data);

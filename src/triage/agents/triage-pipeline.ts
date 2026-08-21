@@ -140,7 +140,7 @@ export function TriagePipeline() {
 	return [
 		`You are triaging a bug report for ${input.owner}/${input.repo}.`,
 		input.continuingFix
-			? `The repository is checked out at ${REPO_DIR} on the existing candidate branch \`${input.fixBranch}\`. Preserve the parts of that fix which already work and use the latest reporter feedback to address what remains broken. You have a full shell: build, run, and edit code as the skill directs.`
+			? `The repository is checked out at ${REPO_DIR} on the existing candidate branch \`${input.fixBranch}\`. Preserve the parts of that fix which already work and use the latest reporter feedback to address what remains broken. If the feedback lacks specific details about what is still broken (e.g. just "still broken" or "doesn't work"), do not guess — submit fixed=false and the comment step will ask the reporter for more information. You have a full shell: build, run, and edit code as the skill directs.`
 			: `The repository is checked out at ${REPO_DIR} on branch \`${input.fixBranch}\` (created from \`${input.defaultBranch}\`). You have a full shell: build, run, and edit code as the skill directs.`,
 		`Activate the \`${input.skillName}\` skill (${input.skillDirectory}/SKILL.md) and follow it, but run only the sub-skill named in each message you receive, then call that step's submit tool exactly once.`,
 		`Use \`${TRIAGE_DIR}/gh-${input.issueNumber}\` as the triage working directory (triageDir). It is outside the checkout; use exactly this absolute path, never a \`triage/\` directory inside ${REPO_DIR}. Maintain report.md there across steps as the skill requires.`,

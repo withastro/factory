@@ -37,6 +37,15 @@ describe('triage FSM', () => {
 		).toEqual({ type: 'verify-fix' });
 	});
 
+	it('restarts triage when a comment finds a stranded in-progress issue', () => {
+		expect(
+			route(
+				{ action: 'comment', issueState: 'open', issueLabels: [labels.inProgress] },
+				labels,
+			),
+		).toEqual({ type: 'triage' });
+	});
+
 	for (const label of [
 		'triage: needs triage',
 		'triage: needs reproduction',
