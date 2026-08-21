@@ -27,7 +27,10 @@ export interface TriageFsmEvent {
 	issueLabels: string[];
 }
 
-export function route(event: TriageFsmEvent, labels: TriageLabelConfig): TriageAction {
+export function route(
+	event: TriageFsmEvent,
+	labels: TriageLabelConfig,
+): TriageAction {
 	// Issue closed → clean up the fix branch. Checked before the state gate
 	// below, which this action would otherwise always trip.
 	if (event.action === 'closed') {

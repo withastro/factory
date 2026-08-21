@@ -12,11 +12,15 @@ export const TRIAGE_FAILURE_MARKER = '<!-- factory:triage-failed -->';
 
 export function countTriageFailures(issue: IssueDetails): number {
 	return issue.comments.filter(
-		(comment) => comment.authorIsBot && comment.body.includes(TRIAGE_FAILURE_MARKER),
+		(comment) =>
+			comment.authorIsBot && comment.body.includes(TRIAGE_FAILURE_MARKER),
 	).length;
 }
 
-export function formatFailureComment(errorMessage: string, attempt: number): string {
+export function formatFailureComment(
+	errorMessage: string,
+	attempt: number,
+): string {
 	const retryMessage =
 		attempt >= MAX_TRIAGE_FAILURES
 			? 'This was the final automatic triage attempt. I will not retry this issue again unless a maintainer clears the failure state manually.'

@@ -114,13 +114,16 @@ triage:
 `);
 		expect(config.triage.autoPrOnFix).toBe(true);
 		expect(config.triage.labels.fixPending).toBe('awaiting-confirmation');
-		expect(config.triage.labels.needsTriage).toBe(DEFAULT_TRIAGE_LABELS.needsTriage);
+		expect(config.triage.labels.needsTriage).toBe(
+			DEFAULT_TRIAGE_LABELS.needsTriage,
+		);
 	});
 
 	it('lets a repository disable triage', () => {
-		expect(parseFactoryConfig('version: 1\ntriage:\n  enabled: false').triage.enabled).toBe(
-			false,
-		);
+		expect(
+			parseFactoryConfig('version: 1\ntriage:\n  enabled: false').triage
+				.enabled,
+		).toBe(false);
 	});
 
 	it('installs with pnpm and builds nothing by default', () => {
@@ -130,9 +133,10 @@ triage:
 	});
 
 	it('accepts a single command as a plain string', () => {
-		expect(parseFactoryConfig('version: 1\ntriage:\n  buildCommand: pnpm build').triage.buildCommand).toEqual([
-			'pnpm build',
-		]);
+		expect(
+			parseFactoryConfig('version: 1\ntriage:\n  buildCommand: pnpm build')
+				.triage.buildCommand,
+		).toEqual(['pnpm build']);
 	});
 
 	it('accepts one command per line as a YAML list', () => {
@@ -166,18 +170,27 @@ triage:
 
     pnpm --filter "@astrojs/*" build
 `).triage.buildCommand,
-		).toEqual(['pnpm --filter astro build', 'pnpm --filter "@astrojs/*" build']);
+		).toEqual([
+			'pnpm --filter astro build',
+			'pnpm --filter "@astrojs/*" build',
+		]);
 	});
 
 	it('lets a repository switch the default install off with an empty list', () => {
 		expect(
-			parseFactoryConfig('version: 1\ntriage:\n  installCommand: []').triage.installCommand,
+			parseFactoryConfig('version: 1\ntriage:\n  installCommand: []').triage
+				.installCommand,
 		).toEqual([]);
 	});
 
 	it('rejects an empty command string and unusable characters', () => {
 		// An empty string is a mistake; `installCommand: []` is how you mean it.
-		for (const command of ['""', "'   '", '"pnpm build\\u0000"', '"pnpm\\u001bbuild"']) {
+		for (const command of [
+			'""',
+			"'   '",
+			'"pnpm build\\u0000"',
+			'"pnpm\\u001bbuild"',
+		]) {
 			expect(() =>
 				parseFactoryConfig(`version: 1\ntriage:\n  buildCommand: ${command}`),
 			).toThrow();
@@ -185,7 +198,10 @@ triage:
 	});
 
 	it('rejects more commands than a bootstrap should need', () => {
-		const commands = Array.from({ length: 21 }, (_, index) => `    - echo ${index}`).join('\n');
+		const commands = Array.from(
+			{ length: 21 },
+			(_, index) => `    - echo ${index}`,
+		).join('\n');
 		expect(() =>
 			parseFactoryConfig(`version: 1\ntriage:\n  buildCommand:\n${commands}`),
 		).toThrow();
@@ -239,23 +255,29 @@ triage:
 	});
 
 	it('leaves preview releases off when the section is absent', () => {
-		expect(parseFactoryConfig('version: 1\ntriage:\n  enabled: true').triage.previewRelease).toBe(
-			undefined,
-		);
+		expect(
+			parseFactoryConfig('version: 1\ntriage:\n  enabled: true').triage
+				.previewRelease,
+		).toBe(undefined);
 	});
 
-	it.each(['../secrets.yml', 'nested/dir/preview.yml', 'preview.txt', 'preview'])(
-		'rejects an unsafe or unsupported preview workflow: %s',
-		(workflow) => {
-			expect(() =>
-				parseFactoryConfig(`version: 1\ntriage:\n  previewRelease:\n    workflow: ${workflow}\n`),
-			).toThrow();
-		},
-	);
+	it.each([
+		'../secrets.yml',
+		'nested/dir/preview.yml',
+		'preview.txt',
+		'preview',
+	])('rejects an unsafe or unsupported preview workflow: %s', (workflow) => {
+		expect(() =>
+			parseFactoryConfig(
+				`version: 1\ntriage:\n  previewRelease:\n    workflow: ${workflow}\n`,
+			),
+		).toThrow();
+	});
 
 	it('validates the triage skill override path', () => {
 		expect(
-			parseFactoryConfig('version: 1\ntriage:\n  skill: .agents/skills/triage').triage.skill,
+			parseFactoryConfig('version: 1\ntriage:\n  skill: .agents/skills/triage')
+				.triage.skill,
 		).toBe('.agents/skills/triage');
 		expect(() =>
 			parseFactoryConfig('version: 1\ntriage:\n  skill: skills/triage'),
@@ -291,12 +313,16 @@ triage:
 `);
 		// Workers AI ids carry their own slashes; only the first segment is the
 		// provider, so the rest must survive intact.
-		expect(config.triage.model).toBe('cloudflare/@cf/moonshotai/kimi-k2.7-code');
+		expect(config.triage.model).toBe(
+			'cloudflare/@cf/moonshotai/kimi-k2.7-code',
+		);
 		expect(config.triage.verificationModel).toBe('anthropic/claude-haiku-4-5');
 	});
 
 	it('falls back to the built-in models for capabilities that name none', () => {
-		const config = parseFactoryConfig('version: 1\ntriage:\n  model: anthropic/claude-opus-4-6');
+		const config = parseFactoryConfig(
+			'version: 1\ntriage:\n  model: anthropic/claude-opus-4-6',
+		);
 		expect(config.triage.model).toBe('anthropic/claude-opus-4-6');
 		expect(config.triage.verificationModel).toBe(VERIFICATION_MODEL);
 	});
@@ -307,9 +333,14 @@ triage:
 		'/claude-opus-4-6',
 		'anthropic/',
 		'Anthropic/claude-opus-4-6',
-	])('rejects a model that names an unbundled provider or is malformed: %s', (model) => {
-		expect(() => parseFactoryConfig(`version: 1\ntriage:\n  model: ${model}`)).toThrow();
-	});
+	])(
+		'rejects a model that names an unbundled provider or is malformed: %s',
+		(model) => {
+			expect(() =>
+				parseFactoryConfig(`version: 1\ntriage:\n  model: ${model}`),
+			).toThrow();
+		},
+	);
 
 	it.each([
 		'.agents/skills/review/',

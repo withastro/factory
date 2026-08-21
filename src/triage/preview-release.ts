@@ -62,7 +62,9 @@ const previewPayloadSchema = v.object({
 	),
 });
 
-export type PreviewPackage = v.InferOutput<typeof previewPayloadSchema>['packages'][number];
+export type PreviewPackage = v.InferOutput<
+	typeof previewPayloadSchema
+>['packages'][number];
 
 export interface PreviewReleaseCheck {
 	status: string;
@@ -97,7 +99,8 @@ export function parsePreviewReleasePayload(
 	if (!result.success) return [];
 
 	const packages = result.output.packages;
-	if (!packages.every((entry) => isTrustedPreviewUrl(entry.url, allowedHosts))) return [];
+	if (!packages.every((entry) => isTrustedPreviewUrl(entry.url, allowedHosts)))
+		return [];
 	return packages;
 }
 
@@ -107,7 +110,10 @@ export function parsePreviewReleasePayload(
  * and no characters that could break out of the markdown or shell context it
  * gets rendered into.
  */
-export function isTrustedPreviewUrl(value: string, allowedHosts: readonly string[]): boolean {
+export function isTrustedPreviewUrl(
+	value: string,
+	allowedHosts: readonly string[],
+): boolean {
 	if (/[\s()[\]<>"'`\\|;&$]/.test(value)) return false;
 
 	let url: URL;
@@ -140,7 +146,9 @@ function extractJsonBlock(summary: string): string | null {
  * "fix pending" label and the comment can never disagree, and the untrusted
  * URLs never enter a model prompt.
  */
-export function formatPreviewReleaseSection(packages: PreviewPackage[]): string {
+export function formatPreviewReleaseSection(
+	packages: PreviewPackage[],
+): string {
 	return [
 		'### Try this fix',
 		'',
@@ -220,12 +228,16 @@ export async function findPreviewReleaseCheck(
 		per_page: 20,
 	});
 
-	const runs = response.data.check_runs.filter((run) => run.app?.slug === options.appSlug);
+	const runs = response.data.check_runs.filter(
+		(run) => run.app?.slug === options.appSlug,
+	);
 	if (runs.length === 0) return null;
 
 	// GitHub returns the latest run first, but a re-run makes that ordering
 	// worth asserting rather than assuming.
-	const newest = runs.reduce((latest, run) => (startedAt(run) >= startedAt(latest) ? run : latest));
+	const newest = runs.reduce((latest, run) =>
+		startedAt(run) >= startedAt(latest) ? run : latest,
+	);
 	return {
 		status: newest.status,
 		conclusion: newest.conclusion ?? null,

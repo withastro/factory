@@ -31,7 +31,9 @@ export const triagePipelineInputSchema = v.object({
 	model: nonEmptyString,
 });
 
-export type TriagePipelineInput = v.InferOutput<typeof triagePipelineInputSchema>;
+export type TriagePipelineInput = v.InferOutput<
+	typeof triagePipelineInputSchema
+>;
 
 export const SKIP_REASONS = [
 	'not-actionable',
@@ -45,7 +47,9 @@ export const SKIP_REASONS = [
 export const reproduceResultSchema = v.object({
 	reproducible: v.pipe(
 		v.boolean(),
-		v.description('true if the bug was successfully reproduced, false otherwise'),
+		v.description(
+			'true if the bug was successfully reproduced, false otherwise',
+		),
 	),
 	skipped: v.pipe(
 		v.boolean(),
@@ -55,7 +59,9 @@ export const reproduceResultSchema = v.object({
 	),
 	skippedReason: v.pipe(
 		v.nullable(v.picklist(SKIP_REASONS)),
-		v.description('The reason reproduction was skipped, or null if not skipped'),
+		v.description(
+			'The reason reproduction was skipped, or null if not skipped',
+		),
 	),
 });
 
@@ -69,7 +75,9 @@ export const diagnoseResultSchema = v.object({
 export const verifyResultSchema = v.object({
 	verdict: v.pipe(
 		v.picklist(['bug', 'intended-behavior', 'unclear']),
-		v.description('Whether the reported behavior is a bug, intended behavior, or unclear'),
+		v.description(
+			'Whether the reported behavior is a bug, intended behavior, or unclear',
+		),
 	),
 	confidence: v.pipe(
 		v.picklist(['high', 'medium', 'low']),
@@ -84,7 +92,9 @@ export const fixResultSchema = v.object({
 	),
 	commitMessage: v.pipe(
 		v.nullable(v.string()),
-		v.description('A short commit message describing the fix. null if not fixed.'),
+		v.description(
+			'A short commit message describing the fix. null if not fixed.',
+		),
 	),
 });
 
@@ -100,7 +110,9 @@ export const commentResultSchema = v.object({
 export const labelSelectionSchema = v.object({
 	priority: v.pipe(
 		v.nullable(v.string()),
-		v.description('The chosen priority label name, exactly as listed, or null if none fit'),
+		v.description(
+			'The chosen priority label name, exactly as listed, or null if none fit',
+		),
 	),
 	packages: v.pipe(
 		v.array(v.string()),
@@ -110,8 +122,16 @@ export const labelSelectionSchema = v.object({
 });
 
 export const prContentSchema = v.object({
-	title: v.pipe(nonEmptyString, v.maxLength(200), v.description('The PR title')),
-	body: v.pipe(nonEmptyString, v.maxLength(20_000), v.description('The PR body in markdown')),
+	title: v.pipe(
+		nonEmptyString,
+		v.maxLength(200),
+		v.description('The PR title'),
+	),
+	body: v.pipe(
+		nonEmptyString,
+		v.maxLength(20_000),
+		v.description('The PR body in markdown'),
+	),
 });
 
 export type ReproduceResult = v.InferOutput<typeof reproduceResultSchema>;

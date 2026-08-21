@@ -1,5 +1,5 @@
-import { createCloudflareTracing } from '@flue/runtime/cloudflare';
 import { instrument, observe } from '@flue/runtime';
+import { createCloudflareTracing } from '@flue/runtime/cloudflare';
 import { Hono } from 'hono';
 import { githubChannel } from './channels/github.ts';
 import type { AppHonoEnv } from './env.ts';

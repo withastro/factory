@@ -8,7 +8,7 @@
  * "not a git repository" after the fix had already been written.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { REPO_DIR, TRIAGE_DIR } from '../src/triage/sandbox-utils.ts';
 
@@ -35,7 +35,10 @@ describe('bundled triage skill', () => {
 			const offenders = content
 				.split('\n')
 				.filter((line) => /rm\s+-rf?[^\n]*\.git\b/.test(line));
-			expect(offenders, `${name} tells the agent to delete a .git directory`).toEqual([]);
+			expect(
+				offenders,
+				`${name} tells the agent to delete a .git directory`,
+			).toEqual([]);
 		}
 	});
 
@@ -46,7 +49,10 @@ describe('bundled triage skill', () => {
 			const offenders = content
 				.split('\n')
 				.filter((line) => /(?<![/\w])triage\/(gh-|current|issue-)/.test(line));
-			expect(offenders, `${name} uses a checkout-relative triage directory`).toEqual([]);
+			expect(
+				offenders,
+				`${name} uses a checkout-relative triage directory`,
+			).toEqual([]);
 		}
 	});
 });

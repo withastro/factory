@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
 	formatTriageProgress,
-	triageProgressMarker,
 	type TriageProgressState,
+	triageProgressMarker,
 } from '../src/triage/progress.ts';
 
-function progress(overrides: Partial<TriageProgressState> = {}): TriageProgressState {
+function progress(
+	overrides: Partial<TriageProgressState> = {},
+): TriageProgressState {
 	return {
 		current: 'workspace',
 		includeInstall: true,

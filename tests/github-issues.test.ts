@@ -6,7 +6,9 @@ import {
 	upsertIssueComment,
 } from '../src/github/issues.ts';
 
-function mockClient(comments: Array<{ id: number; body: string; user: { type: string } }>) {
+function mockClient(
+	comments: Array<{ id: number; body: string; user: { type: string } }>,
+) {
 	const createComment = vi.fn().mockResolvedValue({ data: { id: 42 } });
 	const updateComment = vi.fn().mockResolvedValue({ data: {} });
 	const addLabels = vi.fn().mockResolvedValue({ data: {} });
@@ -15,9 +17,25 @@ function mockClient(comments: Array<{ id: number; body: string; user: { type: st
 	const paginate = vi.fn().mockResolvedValue(comments);
 	const client = {
 		paginate,
-		rest: { issues: { addLabels, createComment, listComments, removeLabel, updateComment } },
+		rest: {
+			issues: {
+				addLabels,
+				createComment,
+				listComments,
+				removeLabel,
+				updateComment,
+			},
+		},
 	} as unknown as InstallationClient;
-	return { addLabels, client, createComment, listComments, paginate, removeLabel, updateComment };
+	return {
+		addLabels,
+		client,
+		createComment,
+		listComments,
+		paginate,
+		removeLabel,
+		updateComment,
+	};
 }
 
 describe('issue comment upserts', () => {
@@ -27,9 +45,9 @@ describe('issue comment upserts', () => {
 			{ id: 7, body: `Working\n${marker}`, user: { type: 'Bot' } },
 		]);
 
-		await expect(upsertIssueComment(client, 'withastro', 'astro', 1, marker, 'Updated')).resolves.toBe(
-			7,
-		);
+		await expect(
+			upsertIssueComment(client, 'withastro', 'astro', 1, marker, 'Updated'),
+		).resolves.toBe(7);
 		expect(updateComment).toHaveBeenCalledWith({
 			owner: 'withastro',
 			repo: 'astro',
@@ -45,9 +63,9 @@ describe('issue comment upserts', () => {
 			{ id: 7, body: marker, user: { type: 'User' } },
 		]);
 
-		await expect(upsertIssueComment(client, 'withastro', 'astro', 1, marker, 'Started')).resolves.toBe(
-			42,
-		);
+		await expect(
+			upsertIssueComment(client, 'withastro', 'astro', 1, marker, 'Started'),
+		).resolves.toBe(42);
 		expect(createComment).toHaveBeenCalledWith({
 			owner: 'withastro',
 			repo: 'astro',
@@ -68,9 +86,9 @@ describe('issue comment upserts', () => {
 				{ id: 9, body: `Started\n\n${marker}`, user: { type: 'Bot' } },
 			]);
 
-		await expect(upsertIssueComment(client, 'withastro', 'astro', 1, marker, 'Started')).resolves.toBe(
-			9,
-		);
+		await expect(
+			upsertIssueComment(client, 'withastro', 'astro', 1, marker, 'Started'),
+		).resolves.toBe(9);
 		expect(createComment).toHaveBeenCalledOnce();
 		expect(paginate).toHaveBeenCalledTimes(2);
 	});
@@ -80,7 +98,15 @@ describe('issue comment upserts', () => {
 		const { client, paginate, updateComment } = mockClient([]);
 
 		await expect(
-			saveIssueComment(client, 'withastro', 'astro', 1, 12, marker, 'Still working'),
+			saveIssueComment(
+				client,
+				'withastro',
+				'astro',
+				1,
+				12,
+				marker,
+				'Still working',
+			),
 		).resolves.toBe(12);
 		expect(updateComment).toHaveBeenCalledWith({
 			owner: 'withastro',

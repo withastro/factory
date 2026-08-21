@@ -249,13 +249,11 @@ export async function loadLatestUnresolvedReviewThreads(
 	const threads: UnresolvedReviewThread[] = [];
 	let after: string | null = null;
 	while (true) {
-		const response: ThreadPageResponse = await client.graphql<ThreadPageResponse>(
-			REVIEW_THREADS_QUERY,
-			{
+		const response: ThreadPageResponse =
+			await client.graphql<ThreadPageResponse>(REVIEW_THREADS_QUERY, {
 				...input,
 				after,
-			},
-		);
+			});
 		const connection: ThreadConnection | undefined =
 			response.repository?.pullRequest?.reviewThreads;
 		if (!connection)
@@ -422,13 +420,11 @@ async function findLatestFactoryReview(
 ): Promise<FactoryReview | undefined> {
 	let before: string | null = null;
 	while (true) {
-		const response: ReviewPageResponse = await client.graphql<ReviewPageResponse>(
-			LATEST_REVIEWS_QUERY,
-			{
+		const response: ReviewPageResponse =
+			await client.graphql<ReviewPageResponse>(LATEST_REVIEWS_QUERY, {
 				...input,
 				before,
-			},
-		);
+			});
 		const connection: ReviewConnection | undefined =
 			response.repository?.pullRequest?.reviews;
 		if (!connection)

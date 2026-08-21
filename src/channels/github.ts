@@ -11,7 +11,11 @@ import {
 	reviewWorkflowParamsSchema,
 } from '../review/contracts.ts';
 import { matchesReviewTrigger } from '../review/setup.ts';
-import { routeDelivery, type Dispatch, type ReviewIntentParams } from '../router.ts';
+import {
+	type Dispatch,
+	type ReviewIntentParams,
+	routeDelivery,
+} from '../router.ts';
 import { triageCoordinatorKey } from '../triage/contracts.ts';
 
 export const githubChannel = createGitHubChannel<AppHonoEnv>({
@@ -35,7 +39,11 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 				);
 				const admission = await coordinator.enqueue(dispatch.params);
 				logAdmitted(delivery, 'triage', admission.disposition);
-				return Response.json({ accepted: true, capability: 'triage', ...admission });
+				return Response.json({
+					accepted: true,
+					capability: 'triage',
+					...admission,
+				});
 			}
 		}
 	},
@@ -77,7 +85,9 @@ async function dispatchReview(
 		return Response.json({ accepted: false, reason });
 	}
 
-	const coordinator = env.REVIEW_COORDINATOR.getByName(reviewCoordinatorKey(params));
+	const coordinator = env.REVIEW_COORDINATOR.getByName(
+		reviewCoordinatorKey(params),
+	);
 	const admission = await coordinator.enqueue(params);
 	logAdmitted(delivery, 'review', admission.disposition);
 	return Response.json({ accepted: true, capability: 'review', ...admission });

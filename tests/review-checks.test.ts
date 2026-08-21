@@ -3,8 +3,8 @@ import type { InstallationClient } from '../src/github/client.ts';
 import {
 	completeReviewCheck,
 	REVIEW_CHECK_NAME,
-	startReviewCheck,
 	type ReviewCheckInput,
+	startReviewCheck,
 } from '../src/review/checks.ts';
 
 const input: ReviewCheckInput = {
@@ -90,8 +90,14 @@ describe('GitHub review checks', () => {
 
 		await completeReviewCheck(client, input);
 		expect(update).toHaveBeenCalledTimes(2);
-		expect(update).toHaveBeenNthCalledWith(1, expect.objectContaining({ check_run_id: 7 }));
-		expect(update).toHaveBeenNthCalledWith(2, expect.objectContaining({ check_run_id: 8 }));
+		expect(update).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ check_run_id: 7 }),
+		);
+		expect(update).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ check_run_id: 8 }),
+		);
 	});
 
 	it('retries reconciliation when an ambiguous create is not visible yet', async () => {

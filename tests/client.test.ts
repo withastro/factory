@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { credentialsFromWorkerEnv } from '../src/github/client.ts';
 import type { WorkerEnv } from '../src/env.ts';
+import { credentialsFromWorkerEnv } from '../src/github/client.ts';
 
 describe('credentialsFromWorkerEnv', () => {
 	it('normalizes escaped private-key line breaks', () => {
@@ -9,7 +9,10 @@ describe('credentialsFromWorkerEnv', () => {
 			GITHUB_APP_PRIVATE_KEY: 'first\\nsecond',
 		} as WorkerEnv);
 
-		expect(credentials).toEqual({ appId: '123456', privateKey: 'first\nsecond' });
+		expect(credentials).toEqual({
+			appId: '123456',
+			privateKey: 'first\nsecond',
+		});
 	});
 
 	it('reports a missing private-key binding', () => {

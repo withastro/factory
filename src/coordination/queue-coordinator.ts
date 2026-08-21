@@ -120,7 +120,9 @@ export abstract class QueueCoordinator<
 			if (active.phase === 'starting') {
 				await this.finishStarting(state, active);
 			} else {
-				const instance = await this.workflowBinding().get(active.params.deliveryId);
+				const instance = await this.workflowBinding().get(
+					active.params.deliveryId,
+				);
 				const { status } = await instance.status();
 				if (isActiveWorkflowStatus(status)) return;
 				if (status === 'unknown') {
@@ -137,7 +139,9 @@ export abstract class QueueCoordinator<
 		if (!state.active) await this.startPending(state);
 	}
 
-	private async startPending(state: QueueState<P>): Promise<string | undefined> {
+	private async startPending(
+		state: QueueState<P>,
+	): Promise<string | undefined> {
 		const pending = state.pending;
 		if (!pending) return;
 		state.pending = undefined;
@@ -177,7 +181,9 @@ export abstract class QueueCoordinator<
 			const instance = await this.workflowBinding().get(params.deliveryId);
 			const { status } = await instance.status();
 			if (status === 'unknown') throw error;
-			return isActiveWorkflowStatus(status) ? 'active-existing' : 'terminal-existing';
+			return isActiveWorkflowStatus(status)
+				? 'active-existing'
+				: 'terminal-existing';
 		}
 	}
 

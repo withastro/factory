@@ -18,9 +18,9 @@ import {
 	labelSelectionSchema,
 	prContentSchema,
 	reproduceResultSchema,
+	type TriagePipelineInput,
 	triagePipelineInputSchema,
 	verifyResultSchema,
-	type TriagePipelineInput,
 } from '../pipeline-contracts.ts';
 import { getTriageSandbox, REPO_DIR, TRIAGE_DIR } from '../sandbox.ts';
 
@@ -39,11 +39,15 @@ export function TriagePipeline() {
 	useModel(input.model, { thinkingLevel: 'high' });
 
 	useSandbox(
-		cloudflareSandbox(getTriageSandbox(env as unknown as WorkerEnv, input.sandboxId)),
+		cloudflareSandbox(
+			getTriageSandbox(env as unknown as WorkerEnv, input.sandboxId),
+		),
 		{ cwd: REPO_DIR },
 	);
 
-	const writeReproduce = useDataWriter('reproduce', { schema: reproduceResultSchema });
+	const writeReproduce = useDataWriter('reproduce', {
+		schema: reproduceResultSchema,
+	});
 	useTool({
 		name: 'submit_reproduce_result',
 		description: submitDescription('reproduce'),
@@ -54,7 +58,9 @@ export function TriagePipeline() {
 		},
 	});
 
-	const writeDiagnose = useDataWriter('diagnose', { schema: diagnoseResultSchema });
+	const writeDiagnose = useDataWriter('diagnose', {
+		schema: diagnoseResultSchema,
+	});
 	useTool({
 		name: 'submit_diagnose_result',
 		description: submitDescription('diagnose'),
@@ -87,7 +93,9 @@ export function TriagePipeline() {
 		},
 	});
 
-	const writeComment = useDataWriter('comment', { schema: commentResultSchema });
+	const writeComment = useDataWriter('comment', {
+		schema: commentResultSchema,
+	});
 	useTool({
 		name: 'submit_comment',
 		description: submitDescription('comment'),
@@ -134,7 +142,10 @@ export function TriagePipeline() {
 	});
 
 	const conversation = input.conversation
-		.map((c) => `**@${c.author}** (${c.association}${c.isBot ? ', bot' : ''}):\n${c.body}`)
+		.map(
+			(c) =>
+				`**@${c.author}** (${c.association}${c.isBot ? ', bot' : ''}):\n${c.body}`,
+		)
 		.join('\n\n---\n\n');
 
 	return [
