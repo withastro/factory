@@ -1,0 +1,39 @@
+src/triage/agents/triage-pipeline.ts
+  s_bd1e040f979179::t_1d639f2342fcf6 25-26,137
+src/triage/contracts.ts
+  s_6bddd8bed29754::t_5d6665a2a8849c 53,85-96,114-119
+src/triage/fix-verification.ts
+  s_6bddd8bed29754::t_59f2307524d85a 4-11,13-38,89-92,98-102,105-114,117-131,138,140,148-159,164,166
+src/triage/prompts.ts
+  s_bd1e040f979179::t_34cdc7689f08c7 9-40
+src/triage/sandbox.ts
+  s_6bddd8bed29754::t_99cdb706501f7a 198-204,207,209,219
+src/triage/workflow.ts
+  s_6bddd8bed29754::t_44d962bcc32c9d 60,303-312,654-664,1066-1092,1146,1216-1219,1221,1226,1229-1242
+tests/triage-prompts.test.ts
+  s_6bddd8bed29754::t_0cf9559f1cad09 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d078331732fdf7282668daaf44ba9ad4e340fd15",
+  "prompts": {},
+  "sessions": {
+    "s_6bddd8bed29754": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdbb372a2ffeUw1krBioKk3YqC",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    },
+    "s_bd1e040f979179": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdbab98c5ffesfPVcZ5Ef9hIE4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    }
+  }
+}
