@@ -195,12 +195,18 @@ export async function runCheckoutCommands(
 	}
 }
 
-/** True when the working tree differs from the default branch or is dirty. */
+/**
+ * True when the working tree differs from `baseRef` or is dirty.
+ *
+ * `baseRef` is the default branch for a fresh run, and the candidate commit
+ * the run started from when continuing an existing fix — comparing that one
+ * against the default branch would report the previous fix as a change.
+ */
 export async function workspaceHasChanges(
 	sandbox: TriageSandbox,
-	defaultBranch: string,
+	baseRef: string,
 ): Promise<{ diff: boolean; dirty: boolean }> {
-	assertGitRef(defaultBranch);
+	assertGitRef(baseRef);
 	const status = await execOrThrow(
 		sandbox,
 		'status',
@@ -210,7 +216,7 @@ export async function workspaceHasChanges(
 	const diff = await execOrThrow(
 		sandbox,
 		'diff',
-		`cd ${REPO_DIR} && git diff ${shellQuote(defaultBranch)} --stat`,
+		`cd ${REPO_DIR} && git diff ${shellQuote(baseRef)} --stat`,
 		120,
 	);
 	return { diff: diff.stdout.trim().length > 0, dirty: status.stdout.trim().length > 0 };

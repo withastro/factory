@@ -54,7 +54,10 @@ describe('triage sandbox helpers', () => {
 		const sha = 'a'.repeat(40);
 		const fetch = existingFixFetchScript('factory/fix-139', sha);
 		expect(fetch).toContain("fetch --no-tags origin 'refs/heads/factory/fix-139'");
-		expect(fetch).toContain(`test "$(git rev-parse FETCH_HEAD)" = '${sha}'`);
+		expect(fetch).toContain(`[ "$fetched" = '${sha}' ]`);
+		// A branch that moved has to say so: the pin fails every retry, and
+		// `test` alone would fail with nothing on stderr.
+		expect(fetch).toContain('moved to $fetched');
 		expect(fixBranchCheckoutCommand('factory/fix-139', sha)).toBe(
 			`git checkout -B 'factory/fix-139' '${sha}'`,
 		);

@@ -50,7 +50,7 @@ export type TriageWorkflowOutcome =
 			pullRequestUrl: string | null;
 	  }
 	| { outcome: 'failed'; reason: string }
-	| { outcome: 'fix-rejected' }
+	| { outcome: 'fix-rejected'; reason: string }
 	| { outcome: 'fix-inconclusive'; reason: string }
 	| { outcome: 'fix-verified'; pullRequestUrl: string }
 	| { outcome: 'no-retriage'; reason: string };
@@ -82,6 +82,18 @@ export type FixVerifierInput = v.InferOutput<typeof fixVerifierInputSchema>;
 export const fixVerdictSchema = v.object({
 	status: v.picklist(['confirmed', 'rejected', 'inconclusive']),
 	reasoning: v.pipe(v.string(), v.maxLength(2_000)),
+	/**
+	 * Whether a rejection says enough about what is still broken to aim
+	 * another triage run at it. Null unless the status is "rejected".
+	 */
+	feedback: v.nullable(
+		v.pipe(
+			v.picklist(['specific', 'vague']),
+			v.description(
+				'"specific" when the comment names what is still broken; "vague" when it only says the fix did not work. Null unless the status is "rejected".',
+			),
+		),
+	),
 	pr: v.nullable(
 		v.object({
 			title: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200)),
@@ -98,6 +110,12 @@ export function validateFixVerdict(verdict: FixVerdict): FixVerdict {
 	}
 	if (verdict.status !== 'confirmed' && verdict.pr) {
 		throw new Error('Only a confirmed verdict may include PR content.');
+	}
+	if (verdict.status === 'rejected' && !verdict.feedback) {
+		throw new Error('A rejected verdict must classify the feedback as specific or vague.');
+	}
+	if (verdict.status !== 'rejected' && verdict.feedback) {
+		throw new Error('Only a rejected verdict may classify the feedback.');
 	}
 	return verdict;
 }

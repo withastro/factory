@@ -69,10 +69,15 @@ export function existingFixFetchScript(
 	const authConfig = cloneToken
 		? `-c http.extraHeader=${shellQuote(`Authorization: basic ${btoa(`x-access-token:${cloneToken}`)}`)} `
 		: '';
+	// `test` says nothing when it fails, and the expected commit is pinned in
+	// workflow state, so a branch that moved would otherwise fail every retry
+	// with an empty error.
+	const pin = `{ [ "$fetched" = ${shellQuote(headSha)} ] || { echo "Fix branch ${branch} moved to $fetched, expected ${headSha}." >&2; exit 1; }; }`;
 	return [
 		`cd ${REPO_DIR}`,
 		`git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 ${authConfig}fetch --no-tags origin ${shellQuote(`refs/heads/${branch}`)}`,
-		`test "$(git rev-parse FETCH_HEAD)" = ${shellQuote(headSha)}`,
+		'fetched="$(git rev-parse FETCH_HEAD)"',
+		pin,
 	].join(' && ');
 }
 

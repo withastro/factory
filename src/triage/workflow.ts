@@ -57,7 +57,7 @@ import {
 	formatFailureComment,
 	MAX_TRIAGE_FAILURES,
 } from './failure.ts';
-import { postFixRetryComment } from './fix-verification.ts';
+import { acknowledgeRejectedFix, MAX_FIX_RETRIES } from './fix-verification.ts';
 import { allTriageLabels, currentTriageLabel, labelAppearance } from './labels.ts';
 import {
 	commentResultSchema,
@@ -300,7 +300,16 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			});
 			progressComment.id = await startTriageProgress(step, client, params, progress);
 
-			return await this.runPipeline(step, client, credentials, params, routed, fixBranch, progress, progressComment);
+			return await this.runPipeline(
+				step,
+				client,
+				credentials,
+				params,
+				routed,
+				fixBranch,
+				progress,
+				progressComment,
+			);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			await step.do('record triage failure', STEP_RETRIES, async () => {
@@ -642,8 +651,17 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				'commit and push fix branch',
 				{ retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' }, timeout: '15 minutes' },
 				async () => {
-					const changes = await workspaceHasChanges(sandbox(), params.defaultBranch);
-					if (!changes.diff && !changes.dirty) return { pushed: false, detail: 'no changes' };
+					const changes = await workspaceHasChanges(
+						sandbox(),
+						fixBranch.headSha ?? params.defaultBranch,
+					);
+					if (!changes.diff && !changes.dirty) {
+						// A continuing run that changed nothing has nothing to push:
+						// the branch already points at exactly this tree.
+						return fixBranch.headSha
+							? { pushed: true, detail: 'candidate unchanged' }
+							: { pushed: false, detail: 'no changes' };
+					}
 					// The token exists only inside this step and is scoped to
 					// repository contents.
 					const token = await createScopedInstallationToken(
@@ -1045,7 +1063,33 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			return { outcome: 'no-retriage', reason: decision.reasoning };
 		}
 
-		return this.restartTriage(step, client, credentials, params, routed);
+		// A rejected candidate the reporter has now described is the same
+		// continuing-fix run `verifyFix` would have started, one comment later:
+		// keep the parts that already work instead of starting over.
+		const fixBranch =
+			issue.currentLabel === triage.labels.fixRejected
+				? await this.findFixBranch(step, client, params)
+				: null;
+
+		return this.restartTriage(step, client, credentials, params, routed, fixBranch ?? undefined);
+	}
+
+	/** The fix branch for this issue and the commit it currently points at. */
+	private findFixBranch(
+		step: WorkflowStep,
+		client: () => Promise<InstallationClient>,
+		params: TriageWorkflowParams,
+	): Promise<FixBranch | null> {
+		return step.do('find fix branch', STEP_RETRIES, async () => {
+			const api = await client();
+			const name = await findExistingBranch(api, params.owner, params.repo, [
+				fixBranchName(params.issueNumber),
+				...legacyFixBranchNames(params.issueNumber),
+			]);
+			if (!name) return null;
+			const headSha = await getBranchHeadSha(api, params.owner, params.repo, name);
+			return headSha ? { name, headSha } : null;
+		});
 	}
 
 	private async restartTriage(
@@ -1099,16 +1143,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 	): Promise<TriageWorkflowOutcome> {
 		const { issue, triage } = routed;
 
-		const fixBranch = await step.do('find fix branch', STEP_RETRIES, async () => {
-			const api = await client();
-			const name = await findExistingBranch(api, params.owner, params.repo, [
-				fixBranchName(params.issueNumber),
-				...legacyFixBranchNames(params.issueNumber),
-			]);
-			if (!name) return null;
-			const headSha = await getBranchHeadSha(api, params.owner, params.repo, name);
-			return headSha ? { name, headSha } : null;
-		});
+		const fixBranch = await this.findFixBranch(step, client, params);
 		if (!fixBranch) {
 			return {
 				outcome: 'skipped',
@@ -1178,15 +1213,33 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					triage.labels.fixRejected,
 				);
 			});
-			await step.do('acknowledge rejected fix', STEP_RETRIES, async () => {
+			// The verifier has already read the comment, so what happens next is
+			// decided from its verdict rather than from another agent run — and
+			// long before a pipeline run has been spent on it.
+			const action = await step.do('acknowledge rejected fix', STEP_RETRIES, async () => {
 				const api = await client();
-				await postFixRetryComment(api, {
+				return acknowledgeRejectedFix(api, {
 					owner: params.owner,
 					repo: params.repo,
 					issueNumber: params.issueNumber,
 					deliveryId: params.deliveryId,
+					feedback: verdict.feedback ?? 'vague',
 				});
 			});
+			// `fix rejected` is re-triageable, so the reporter's next comment
+			// runs the RetriageJudge and picks the candidate back up from there.
+			if (action === 'needs-details') {
+				return {
+					outcome: 'fix-rejected',
+					reason: 'Asked the reporter what is still broken before retrying.',
+				};
+			}
+			if (action === 'retry-limit') {
+				return {
+					outcome: 'fix-rejected',
+					reason: `Reached ${MAX_FIX_RETRIES} automatic fix retries; left for a maintainer.`,
+				};
+			}
 			return this.restartTriage(
 				step,
 				client,
