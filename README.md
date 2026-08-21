@@ -47,7 +47,9 @@ bundled review skill, or a repository-provided override, and publishes
 validated findings as a PR review (inline comments anchored against the real
 diff, the rest in the body, always with an LLM disclosure). Repository config
 and skill overrides are read at the target branch's tip SHA captured at webhook
-time — never from the PR head.
+time — never from the PR head. When review is triggered again, the agent also
+rechecks unresolved inline threads from its latest prior review and resolves
+only those it determines have been addressed.
 
 ### Triage (`src/triage/`)
 

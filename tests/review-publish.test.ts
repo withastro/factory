@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { InstallationClient } from '../src/github/client.ts';
 import type { ReviewResult } from '../src/review/contracts.ts';
 import { REVIEW_DISCLOSURE, reviewMarker } from '../src/review/diff.ts';
-import { publishReview, type PublishReviewInput } from '../src/review/publish.ts';
+import {
+	type PublishReviewInput,
+	publishReview,
+} from '../src/review/publish.ts';
 
 const input: PublishReviewInput = {
 	owner: 'withastro',
@@ -13,6 +16,7 @@ const input: PublishReviewInput = {
 };
 const result: ReviewResult = {
 	summary: 'One issue found.',
+	addressedThreadIds: [],
 	findings: [
 		{
 			path: 'src/example.ts',
@@ -30,7 +34,10 @@ function createClient(options: { existingReview?: boolean } = {}) {
 	const listReviews = vi.fn();
 	const listFiles = vi.fn();
 	const createReview = vi.fn(async () => ({
-		data: { id: 42, html_url: 'https://github.com/withastro/astro/pull/123#review-42' },
+		data: {
+			id: 42,
+			html_url: 'https://github.com/withastro/astro/pull/123#review-42',
+		},
 	}));
 	const client = {
 		rest: {
@@ -53,7 +60,8 @@ function createClient(options: { existingReview?: boolean } = {}) {
 					? [
 							{
 								id: 7,
-								html_url: 'https://github.com/withastro/astro/pull/123#review-7',
+								html_url:
+									'https://github.com/withastro/astro/pull/123#review-7',
 								body: reviewMarker(input.deliveryId, input.headSha),
 							},
 						]

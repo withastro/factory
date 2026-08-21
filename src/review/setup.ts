@@ -5,7 +5,11 @@
  * (never from the PR head).
  */
 
-import { loadFactoryConfig, REPOSITORY_CONFIG_PATHS, type ReviewConfig } from '../config.ts';
+import {
+	loadFactoryConfig,
+	REPOSITORY_CONFIG_PATHS,
+	type ReviewConfig,
+} from '../config.ts';
 import type { InstallationClient } from '../github/client.ts';
 import { ensureLabelExists } from '../github/issues.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
@@ -45,7 +49,10 @@ export async function loadReviewSetup(
 		return { outcome: 'stale', reason: 'The pull request is no longer open.' };
 	}
 	if (pull.data.head.sha !== trigger.headSha) {
-		return { outcome: 'stale', reason: 'The pull request head changed before review started.' };
+		return {
+			outcome: 'stale',
+			reason: 'The pull request head changed before review started.',
+		};
 	}
 
 	const config = await loadReviewConfig(client, trigger);
@@ -62,9 +69,14 @@ export async function loadReviewSetup(
 			reason: `Label "${trigger.label}" does not match configured label "${config.trigger.label}".`,
 		};
 	}
-	const labels = pull.data.labels.map((label) => (typeof label === 'string' ? label : label.name));
+	const labels = pull.data.labels.map((label) =>
+		typeof label === 'string' ? label : label.name,
+	);
 	if (!labels.includes(config.trigger.label)) {
-		return { outcome: 'stale', reason: 'The trigger label was removed before review started.' };
+		return {
+			outcome: 'stale',
+			reason: 'The trigger label was removed before review started.',
+		};
 	}
 
 	await ensureLabelExists(
@@ -103,6 +115,7 @@ export async function loadReviewSetup(
 			severities: config.severity,
 			areas: config.areas,
 			skill,
+			unresolvedReviewThreads: [],
 		},
 	};
 }
