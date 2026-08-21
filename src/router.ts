@@ -88,7 +88,10 @@ export function routeDelivery(
 		const pull = payload.pull_request;
 		const label = payload.label;
 		if (!pull || !label) {
-			return { kind: 'none', reason: 'The labeled delivery is missing pull request data.' };
+			return {
+				kind: 'none',
+				reason: 'The labeled delivery is missing pull request data.',
+			};
 		}
 		return {
 			kind: 'review',
@@ -129,7 +132,10 @@ export function routeDelivery(
 			return { kind: 'none', reason: 'The comment delivery has no issue.' };
 		}
 		if (issue.pull_request) {
-			return { kind: 'none', reason: 'The comment is on a pull request, not an issue.' };
+			return {
+				kind: 'none',
+				reason: 'The comment is on a pull request, not an issue.',
+			};
 		}
 		if (payload.comment?.user?.type === 'Bot') {
 			return {
@@ -150,5 +156,8 @@ export function routeDelivery(
 		};
 	}
 
-	return { kind: 'none', reason: `Unhandled event: ${eventName}.${payload.action ?? ''}` };
+	return {
+		kind: 'none',
+		reason: `Unhandled event: ${eventName}.${payload.action ?? ''}`,
+	};
 }

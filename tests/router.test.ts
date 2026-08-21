@@ -114,7 +114,10 @@ describe('webhook dispatch router', () => {
 			},
 			'delivery-5',
 		);
-		expect(dispatch).toEqual({ kind: 'none', reason: 'Comment from bot (factory[bot]).' });
+		expect(dispatch).toEqual({
+			kind: 'none',
+			reason: 'Comment from bot (factory[bot]).',
+		});
 	});
 
 	it('routes private repositories to triage with the private flag set', () => {
@@ -150,14 +153,23 @@ describe('webhook dispatch router', () => {
 			},
 			'delivery-7',
 		);
-		expect(dispatch).toMatchObject({ kind: 'review', params: { pullNumber: 789 } });
+		expect(dispatch).toMatchObject({
+			kind: 'review',
+			params: { pullNumber: 789 },
+		});
 	});
 
 	it('ignores unhandled events and actions', () => {
 		expect(
-			routeDelivery('issues', { action: 'labeled', installation, repository }, 'd').kind,
+			routeDelivery(
+				'issues',
+				{ action: 'labeled', installation, repository },
+				'd',
+			).kind,
 		).toBe('none');
-		expect(routeDelivery('push', { installation, repository }, 'd').kind).toBe('none');
+		expect(routeDelivery('push', { installation, repository }, 'd').kind).toBe(
+			'none',
+		);
 		expect(
 			routeDelivery(
 				'pull_request',

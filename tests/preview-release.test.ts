@@ -17,14 +17,26 @@ describe('parsePreviewReleasePayload', () => {
 			parsePreviewReleasePayload(
 				summary({
 					packages: [
-						{ name: 'astro', url: 'https://pkg.pr.new/withastro/astro/astro@abc1234' },
-						{ name: '@astrojs/rss', url: 'https://pkg.pr.new/withastro/astro/rss@abc1234' },
+						{
+							name: 'astro',
+							url: 'https://pkg.pr.new/withastro/astro/astro@abc1234',
+						},
+						{
+							name: '@astrojs/rss',
+							url: 'https://pkg.pr.new/withastro/astro/rss@abc1234',
+						},
 					],
 				}),
 			),
 		).toEqual([
-			{ name: 'astro', url: 'https://pkg.pr.new/withastro/astro/astro@abc1234' },
-			{ name: '@astrojs/rss', url: 'https://pkg.pr.new/withastro/astro/rss@abc1234' },
+			{
+				name: 'astro',
+				url: 'https://pkg.pr.new/withastro/astro/astro@abc1234',
+			},
+			{
+				name: '@astrojs/rss',
+				url: 'https://pkg.pr.new/withastro/astro/rss@abc1234',
+			},
 		]);
 	});
 
@@ -41,7 +53,10 @@ describe('parsePreviewReleasePayload', () => {
 		['malformed JSON', '```json\n{"packages":[\n```'],
 		['an empty package list', summary({ packages: [] })],
 		['a missing url', summary({ packages: [{ name: 'astro' }] })],
-		['a non-https url', summary({ packages: [{ name: 'astro', url: 'http://pkg.pr.new/a' }] })],
+		[
+			'a non-https url',
+			summary({ packages: [{ name: 'astro', url: 'http://pkg.pr.new/a' }] }),
+		],
 		[
 			'a javascript: url',
 			summary({ packages: [{ name: 'astro', url: 'javascript:alert(1)' }] }),
@@ -49,26 +64,46 @@ describe('parsePreviewReleasePayload', () => {
 		[
 			'a url containing markdown injection',
 			summary({
-				packages: [{ name: 'astro', url: 'https://pkg.pr.new/a)[click](https://evil.test' }],
+				packages: [
+					{
+						name: 'astro',
+						url: 'https://pkg.pr.new/a)[click](https://evil.test',
+					},
+				],
 			}),
 		],
 		[
 			'a url on an untrusted host',
-			summary({ packages: [{ name: 'astro', url: 'https://evil.test/withastro/astro@sha' }] }),
+			summary({
+				packages: [
+					{ name: 'astro', url: 'https://evil.test/withastro/astro@sha' },
+				],
+			}),
 		],
 		[
 			'a host that merely contains the allowed host',
-			summary({ packages: [{ name: 'astro', url: 'https://pkg.pr.new.evil.test/a@sha' }] }),
+			summary({
+				packages: [
+					{ name: 'astro', url: 'https://pkg.pr.new.evil.test/a@sha' },
+				],
+			}),
 		],
 		[
 			'a url embedding the allowed host as credentials',
-			summary({ packages: [{ name: 'astro', url: 'https://pkg.pr.new@evil.test/a@sha' }] }),
+			summary({
+				packages: [
+					{ name: 'astro', url: 'https://pkg.pr.new@evil.test/a@sha' },
+				],
+			}),
 		],
 		[
 			'a package name that could break out of the shell block',
 			summary({
 				packages: [
-					{ name: 'astro\n```\n[click](https://evil.test)', url: 'https://pkg.pr.new/a@sha' },
+					{
+						name: 'astro\n```\n[click](https://evil.test)',
+						url: 'https://pkg.pr.new/a@sha',
+					},
 				],
 			}),
 		],
@@ -81,7 +116,10 @@ describe('parsePreviewReleasePayload', () => {
 			parsePreviewReleasePayload(
 				summary({
 					packages: [
-						{ name: 'astro', url: 'https://pkg.pr.new/withastro/astro/astro@abc1234' },
+						{
+							name: 'astro',
+							url: 'https://pkg.pr.new/withastro/astro/astro@abc1234',
+						},
 						{ name: 'evil', url: 'https://evil.test/payload' },
 					],
 				}),
@@ -97,7 +135,9 @@ describe('parsePreviewReleasePayload', () => {
 		).toEqual([{ name: 'a', url: 'https://cdn.pkg.pr.new/a' }]);
 		expect(
 			parsePreviewReleasePayload(
-				summary({ packages: [{ name: 'a', url: 'https://previews.corp.test/a' }] }),
+				summary({
+					packages: [{ name: 'a', url: 'https://previews.corp.test/a' }],
+				}),
 				['previews.corp.test'],
 			),
 		).toEqual([{ name: 'a', url: 'https://previews.corp.test/a' }]);
@@ -116,7 +156,9 @@ describe('dispatchPreviewRelease', () => {
 	function createClient(dispatch: () => Promise<unknown>) {
 		const createWorkflowDispatch = vi.fn(dispatch);
 		return {
-			client: { rest: { actions: { createWorkflowDispatch } } } as unknown as InstallationClient,
+			client: {
+				rest: { actions: { createWorkflowDispatch } },
+			} as unknown as InstallationClient,
 			createWorkflowDispatch,
 		};
 	}
@@ -133,7 +175,9 @@ describe('dispatchPreviewRelease', () => {
 	it('dispatches the maintainer-controlled ref with the fix branch as an input', async () => {
 		const { client, createWorkflowDispatch } = createClient(async () => ({}));
 
-		await expect(dispatchPreviewRelease(client, options)).resolves.toMatchObject({
+		await expect(
+			dispatchPreviewRelease(client, options),
+		).resolves.toMatchObject({
 			dispatched: true,
 		});
 		expect(createWorkflowDispatch).toHaveBeenCalledWith({
@@ -145,33 +189,43 @@ describe('dispatchPreviewRelease', () => {
 		});
 	});
 
-	it.each([403, 404, 422])('reports an undispatchable workflow (HTTP %i)', async (status) => {
-		const { client } = createClient(async () => {
-			throw Object.assign(new Error(`HTTP ${status}`), { status });
-		});
+	it.each([403, 404, 422])(
+		'reports an undispatchable workflow (HTTP %i)',
+		async (status) => {
+			const { client } = createClient(async () => {
+				throw Object.assign(new Error(`HTTP ${status}`), { status });
+			});
 
-		await expect(dispatchPreviewRelease(client, options)).resolves.toEqual({
-			dispatched: false,
-			detail: `factory-preview.yml could not be dispatched (HTTP ${status}).`,
-		});
-	});
+			await expect(dispatchPreviewRelease(client, options)).resolves.toEqual({
+				dispatched: false,
+				detail: `factory-preview.yml could not be dispatched (HTTP ${status}).`,
+			});
+		},
+	);
 
 	it('propagates unexpected failures so the step can retry', async () => {
 		const { client } = createClient(async () => {
 			throw Object.assign(new Error('server error'), { status: 500 });
 		});
 
-		await expect(dispatchPreviewRelease(client, options)).rejects.toThrow('server error');
+		await expect(dispatchPreviewRelease(client, options)).rejects.toThrow(
+			'server error',
+		);
 	});
 });
 
 describe('findPreviewReleaseCheck', () => {
-	const lookup = { checkName: 'factory/preview-release', appSlug: 'github-actions' };
+	const lookup = {
+		checkName: 'factory/preview-release',
+		appSlug: 'github-actions',
+	};
 
 	function createClient(runs: unknown[]) {
 		const listForRef = vi.fn(async () => ({ data: { check_runs: runs } }));
 		return {
-			client: { rest: { checks: { listForRef } } } as unknown as InstallationClient,
+			client: {
+				rest: { checks: { listForRef } },
+			} as unknown as InstallationClient,
 			listForRef,
 		};
 	}
@@ -180,10 +234,19 @@ describe('findPreviewReleaseCheck', () => {
 		const { client, listForRef } = createClient([]);
 
 		await expect(
-			findPreviewReleaseCheck(client, 'withastro', 'astro', 'a'.repeat(40), lookup),
+			findPreviewReleaseCheck(
+				client,
+				'withastro',
+				'astro',
+				'a'.repeat(40),
+				lookup,
+			),
 		).resolves.toBeNull();
 		expect(listForRef).toHaveBeenCalledWith(
-			expect.objectContaining({ ref: 'a'.repeat(40), check_name: 'factory/preview-release' }),
+			expect.objectContaining({
+				ref: 'a'.repeat(40),
+				check_name: 'factory/preview-release',
+			}),
 		);
 	});
 
@@ -267,7 +330,10 @@ describe('formatPreviewReleaseSection', () => {
 	it('renders copy-pasteable install commands', () => {
 		expect(
 			formatPreviewReleaseSection([
-				{ name: 'astro', url: 'https://pkg.pr.new/withastro/astro/astro@abc1234' },
+				{
+					name: 'astro',
+					url: 'https://pkg.pr.new/withastro/astro/astro@abc1234',
+				},
 			]),
 		).toContain('npm i https://pkg.pr.new/withastro/astro/astro@abc1234');
 	});

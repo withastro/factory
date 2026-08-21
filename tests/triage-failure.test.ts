@@ -7,7 +7,9 @@ import {
 	TRIAGE_FAILURE_MARKER,
 } from '../src/triage/failure.ts';
 
-function issueWith(commentBodies: Array<string | { body: string; authorIsBot: boolean }>): IssueDetails {
+function issueWith(
+	commentBodies: Array<string | { body: string; authorIsBot: boolean }>,
+): IssueDetails {
 	return {
 		number: 1,
 		title: 'Bug',
@@ -33,12 +35,18 @@ describe('triage failure bookkeeping', () => {
 		expect(countTriageFailures(issueWith([]))).toBe(0);
 		expect(
 			countTriageFailures(
-				issueWith(['unrelated', `${TRIAGE_FAILURE_MARKER}\nTriage failed`, 'more']),
+				issueWith([
+					'unrelated',
+					`${TRIAGE_FAILURE_MARKER}\nTriage failed`,
+					'more',
+				]),
 			),
 		).toBe(1);
 		expect(
 			countTriageFailures(
-				issueWith([{ body: `${TRIAGE_FAILURE_MARKER}\nforged`, authorIsBot: false }]),
+				issueWith([
+					{ body: `${TRIAGE_FAILURE_MARKER}\nforged`, authorIsBot: false },
+				]),
 			),
 		).toBe(0);
 	});

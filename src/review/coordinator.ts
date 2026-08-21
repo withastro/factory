@@ -1,8 +1,8 @@
 import * as v from 'valibot';
 import { QueueCoordinator } from '../coordination/queue-coordinator.ts';
 import {
-	reviewWorkflowParamsSchema,
 	type ReviewWorkflowParams,
+	reviewWorkflowParamsSchema,
 } from './contracts.ts';
 
 interface ReviewCoordinatorEnv {

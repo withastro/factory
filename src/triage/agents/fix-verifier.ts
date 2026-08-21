@@ -11,9 +11,9 @@ import {
 } from '@flue/runtime';
 import { Bash, InMemoryFs } from 'just-bash';
 import {
+	type FixVerifierInput,
 	fixVerdictSchema,
 	fixVerifierInputSchema,
-	type FixVerifierInput,
 } from '../contracts.ts';
 
 /**
@@ -55,7 +55,10 @@ export function FixVerifier() {
 	});
 
 	const conversation = input.conversation
-		.map((c) => `**@${c.author}** (${c.association}${c.isBot ? ', bot' : ''}):\n${c.body}`)
+		.map(
+			(c) =>
+				`**@${c.author}** (${c.association}${c.isBot ? ', bot' : ''}):\n${c.body}`,
+		)
 		.join('\n\n---\n\n');
 
 	return `You are reviewing a GitHub issue comment to determine if the commenter is confirming that a proposed fix works.

@@ -56,7 +56,9 @@ function createClient(
 ) {
 	const getContent = vi.fn(async ({ path }: { path: string }) => {
 		if (configPaths.includes(path)) {
-			return { data: { type: 'file', content: encode(config), encoding: 'base64' } };
+			return {
+				data: { type: 'file', content: encode(config), encoding: 'base64' },
+			};
 		}
 		if ((REPOSITORY_CONFIG_PATHS as readonly string[]).includes(path)) {
 			throw Object.assign(new Error(`Not found: ${path}`), { status: 404 });
@@ -167,7 +169,9 @@ describe('review setup', () => {
 		});
 		expect(getContent).toHaveBeenCalledTimes(1);
 		expect(getContent).not.toHaveBeenCalledWith(
-			expect.objectContaining({ path: expect.stringContaining('.agents/skills/') }),
+			expect.objectContaining({
+				path: expect.stringContaining('.agents/skills/'),
+			}),
 		);
 	});
 
@@ -179,7 +183,9 @@ describe('review setup', () => {
 			{ labelExists: false },
 		);
 
-		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({ outcome: 'ready' });
+		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({
+			outcome: 'ready',
+		});
 		expect(createLabel).toHaveBeenCalledWith(
 			expect.objectContaining({
 				owner: 'withastro',
@@ -199,7 +205,9 @@ describe('review setup', () => {
 			{ labelExists: true },
 		);
 
-		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({ outcome: 'ready' });
+		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({
+			outcome: 'ready',
+		});
 		expect(createLabel).not.toHaveBeenCalled();
 	});
 
@@ -221,7 +229,9 @@ describe('review setup', () => {
 			[REPOSITORY_CONFIG_PATHS[1]],
 		);
 
-		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({ outcome: 'ready' });
+		await expect(loadReviewSetup(client, trigger())).resolves.toMatchObject({
+			outcome: 'ready',
+		});
 		expect(getContent.mock.calls.map(([request]) => request.path)).toEqual([
 			REPOSITORY_CONFIG_PATHS[0],
 			REPOSITORY_CONFIG_PATHS[1],

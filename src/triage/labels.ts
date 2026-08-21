@@ -44,19 +44,55 @@ export interface LabelAppearance {
 }
 
 /** Colors and descriptions used when the bot creates a missing label. */
-export const TRIAGE_LABEL_APPEARANCE: Record<keyof TriageLabelConfig, LabelAppearance> = {
-	needsTriage: { color: 'bfd4f2', description: 'Awaiting automated or manual triage' },
-	inProgress: { color: '1d76db', description: 'Automated triage is currently running' },
-	notActionable: { color: 'c2c2c2', description: 'Automated triage found nothing actionable' },
-	needsReproduction: { color: 'fbca04', description: 'More details are needed to reproduce' },
-	skipped: { color: 'c2c2c2', description: 'Automated triage was intentionally skipped' },
-	unableToReproduce: { color: 'e99695', description: 'Automated triage could not reproduce the bug' },
-	unableToFix: { color: 'e99695', description: 'Reproduced, but automated triage could not fix it' },
-	failed: { color: 'd93f0b', description: 'Automated triage failed unexpectedly' },
-	fixPending: { color: '0e8a16', description: 'A candidate fix is waiting for reporter confirmation' },
-	fixRejected: { color: 'd93f0b', description: 'The reporter said the candidate fix does not work' },
+export const TRIAGE_LABEL_APPEARANCE: Record<
+	keyof TriageLabelConfig,
+	LabelAppearance
+> = {
+	needsTriage: {
+		color: 'bfd4f2',
+		description: 'Awaiting automated or manual triage',
+	},
+	inProgress: {
+		color: '1d76db',
+		description: 'Automated triage is currently running',
+	},
+	notActionable: {
+		color: 'c2c2c2',
+		description: 'Automated triage found nothing actionable',
+	},
+	needsReproduction: {
+		color: 'fbca04',
+		description: 'More details are needed to reproduce',
+	},
+	skipped: {
+		color: 'c2c2c2',
+		description: 'Automated triage was intentionally skipped',
+	},
+	unableToReproduce: {
+		color: 'e99695',
+		description: 'Automated triage could not reproduce the bug',
+	},
+	unableToFix: {
+		color: 'e99695',
+		description: 'Reproduced, but automated triage could not fix it',
+	},
+	failed: {
+		color: 'd93f0b',
+		description: 'Automated triage failed unexpectedly',
+	},
+	fixPending: {
+		color: '0e8a16',
+		description: 'A candidate fix is waiting for reporter confirmation',
+	},
+	fixRejected: {
+		color: 'd93f0b',
+		description: 'The reporter said the candidate fix does not work',
+	},
 	fixVerified: { color: '0e8a16', description: 'The fix was verified' },
-	prFixVerified: { color: '0e8a16', description: 'This pull request contains a verified fix' },
+	prFixVerified: {
+		color: '0e8a16',
+		description: 'This pull request contains a verified fix',
+	},
 };
 
 /** All triage state labels (excludes the PR label). */

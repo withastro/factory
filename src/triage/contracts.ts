@@ -21,7 +21,9 @@ export const triageWorkflowParamsSchema = v.object({
 	repoIsPrivate: v.optional(v.boolean(), false),
 });
 
-export type TriageWorkflowParams = v.InferOutput<typeof triageWorkflowParamsSchema>;
+export type TriageWorkflowParams = v.InferOutput<
+	typeof triageWorkflowParamsSchema
+>;
 
 export function triageCoordinatorKey(
 	input: Pick<TriageWorkflowParams, 'repositoryId' | 'issueNumber'>,

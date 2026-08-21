@@ -48,7 +48,9 @@ export async function completeReviewCheck(
 	);
 	if (checkRunId !== undefined) checkRunIds.add(checkRunId);
 	if (checkRunIds.size === 0) {
-		throw new Error(`No ${REVIEW_CHECK_NAME} check run exists for delivery ${input.deliveryId}.`);
+		throw new Error(
+			`No ${REVIEW_CHECK_NAME} check run exists for delivery ${input.deliveryId}.`,
+		);
 	}
 
 	for (const id of checkRunIds) {
@@ -63,7 +65,8 @@ export async function completeReviewCheck(
 			completed_at: new Date().toISOString(),
 			output: {
 				title: 'Review complete',
-				summary: 'Factory Review finished. Findings, if any, were posted on the pull request.',
+				summary:
+					'Factory Review finished. Findings, if any, were posted on the pull request.',
 			},
 		});
 	}

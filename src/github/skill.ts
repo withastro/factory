@@ -37,7 +37,9 @@ export function createSkillSnapshot(
 	const metadata = parseSkillMetadata(skillSource);
 	const expectedName = directory.split('/').at(-1);
 	if (metadata.name !== expectedName) {
-		throw new Error(`Skill name "${metadata.name}" must match directory "${expectedName}".`);
+		throw new Error(
+			`Skill name "${metadata.name}" must match directory "${expectedName}".`,
+		);
 	}
 
 	return { name: metadata.name, directory, files };
@@ -62,7 +64,8 @@ export function assertSkillFileBudget(files: Record<string, string>): void {
 	}
 
 	const bytes = entries.reduce(
-		(total, [path, content]) => total + new TextEncoder().encode(path + content).byteLength,
+		(total, [path, content]) =>
+			total + new TextEncoder().encode(path + content).byteLength,
 		0,
 	);
 	if (bytes > MAX_SKILL_BYTES) {
@@ -114,7 +117,12 @@ async function readDirectory(
 	ref: string,
 	files: Record<string, string>,
 ): Promise<void> {
-	const response = await client.rest.repos.getContent({ owner, repo, path, ref });
+	const response = await client.rest.repos.getContent({
+		owner,
+		repo,
+		path,
+		ref,
+	});
 	if (!Array.isArray(response.data)) {
 		throw new Error(`${path} must be a directory.`);
 	}
@@ -125,7 +133,9 @@ async function readDirectory(
 			continue;
 		}
 		if (entry.type !== 'file') {
-			throw new Error(`Skills cannot contain ${entry.type} entries (${entry.path}).`);
+			throw new Error(
+				`Skills cannot contain ${entry.type} entries (${entry.path}).`,
+			);
 		}
 		if (Object.keys(files).length >= MAX_SKILL_FILES) {
 			throw new Error('The skill contains too many files.');
@@ -134,9 +144,17 @@ async function readDirectory(
 			throw new Error(`${entry.path} exceeds the skill size limit.`);
 		}
 
-		const blob = await client.rest.git.getBlob({ owner, repo, file_sha: entry.sha });
+		const blob = await client.rest.git.getBlob({
+			owner,
+			repo,
+			file_sha: entry.sha,
+		});
 		const relativePath = entry.path.slice(root.length + 1);
-		files[relativePath] = decodeText(blob.data.content, blob.data.encoding, entry.path);
+		files[relativePath] = decodeText(
+			blob.data.content,
+			blob.data.encoding,
+			entry.path,
+		);
 		assertSkillFileBudget(files);
 	}
 }

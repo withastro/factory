@@ -124,7 +124,11 @@ ${formatLabelList(packageLabels)}
 Call submit_label_selection exactly once.`;
 }
 
-export function prContentPrompt(issueNumber: number, fixBranch: string, defaultBranch: string): string {
+export function prContentPrompt(
+	issueNumber: number,
+	fixBranch: string,
+	defaultBranch: string,
+): string {
 	return `Generate a pull request title and body for the fix you produced on branch \`${fixBranch}\` targeting \`${defaultBranch}\`.
 
 ## Instructions
@@ -140,6 +144,9 @@ Call submit_pr_content exactly once.`;
 function formatLabelList(labels: RepoLabel[]): string {
 	if (labels.length === 0) return '(none available)';
 	return labels
-		.map((label) => `- "${label.name}": ${label.description || '(no description)'}`)
+		.map(
+			(label) =>
+				`- "${label.name}": ${label.description || '(no description)'}`,
+		)
 		.join('\n');
 }

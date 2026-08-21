@@ -26,7 +26,10 @@ export async function publishReview(
 		pull_number: input.pullNumber,
 	});
 	if (pull.data.state !== 'open' || pull.data.head.sha !== input.headSha) {
-		return { outcome: 'stale', reason: 'The pull request changed before publication.' };
+		return {
+			outcome: 'stale',
+			reason: 'The pull request changed before publication.',
+		};
 	}
 
 	const marker = reviewMarker(input.deliveryId, input.headSha);
