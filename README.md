@@ -49,7 +49,9 @@ diff, the rest in the body, always with an LLM disclosure). Repository config
 and skill overrides are read at the target branch's tip SHA captured at webhook
 time — never from the PR head. When review is triggered again, the agent also
 rechecks unresolved inline threads from its latest prior review and resolves
-only those it determines have been addressed.
+only those it determines have been addressed. If GitHub does not allow the App
+installation identity to resolve a thread, Factory leaves it unresolved without
+failing the new review.
 
 ### Triage (`src/triage/`)
 
@@ -277,7 +279,8 @@ Three deliberate design choices:
 
 ## GitHub App setup
 
-- **Permissions**: Contents (read/write), Issues (read/write), Pull requests
+- **Permissions**: Contents (read/write — also required by GitHub's
+  `resolveReviewThread` mutation), Issues (read/write), Pull requests
   (read/write), Checks (read/write), Actions (read/write — dispatching preview
   release workflows).
 - **Events**: Pull request, Issues, Issue comment.
