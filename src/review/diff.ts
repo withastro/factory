@@ -82,6 +82,17 @@ export function reviewMarker(deliveryId: string, headSha: string): string {
 	return `<!-- factory-review:delivery=${deliveryId}:head=${headSha} -->`;
 }
 
+const REVIEW_MARKER_PATTERN =
+	/<!-- factory-review:delivery=([^:\s>]+):head=([0-9a-f]{40}) -->/i;
+
+export function parseReviewMarker(
+	body: string,
+): { deliveryId: string; headSha: string } | undefined {
+	const match = REVIEW_MARKER_PATTERN.exec(body);
+	if (!match?.[1] || !match[2]) return;
+	return { deliveryId: match[1], headSha: match[2].toLowerCase() };
+}
+
 export function formatReviewBody(
 	result: ReviewResult,
 	unanchored: Finding[],
@@ -93,15 +104,17 @@ export function formatReviewBody(
 			[
 				'### Additional findings',
 				'',
-				...unanchored.slice(0, 30).map((finding) =>
-					[
-						formatFindingLead(finding),
-						'',
-						`\`${containModelMarkdown(finding.path)}:${finding.line} ${finding.side}\``,
-						'',
-						containModelMarkdown(finding.body.slice(0, 1_000)),
-					].join('\n'),
-				),
+				...unanchored
+					.slice(0, 30)
+					.map((finding) =>
+						[
+							formatFindingLead(finding),
+							'',
+							`\`${containModelMarkdown(finding.path)}:${finding.line} ${finding.side}\``,
+							'',
+							containModelMarkdown(finding.body.slice(0, 1_000)),
+						].join('\n'),
+					),
 			].join('\n'),
 		);
 	}
@@ -122,6 +135,7 @@ function containModelMarkdown(value: string): string {
 		.replaceAll('<', '&lt;')
 		.replace(
 			/^([ \t]{0,3})(`{3,}|~{3,})/gm,
-			(_match, indentation: string, fence: string) => `${indentation}\\${fence}`,
+			(_match, indentation: string, fence: string) =>
+				`${indentation}\\${fence}`,
 		);
 }

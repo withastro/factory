@@ -7,14 +7,24 @@ import {
 } from '../../../github/client.ts';
 import type { ReviewAgentInput } from '../../contracts.ts';
 
-const pageSchema = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(30));
-const repositoryPathSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(4_096));
+const pageSchema = v.pipe(
+	v.number(),
+	v.integer(),
+	v.minValue(1),
+	v.maxValue(30),
+);
+const repositoryPathSchema = v.pipe(
+	v.string(),
+	v.minLength(1),
+	v.maxLength(4_096),
+);
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
 export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 	useTool({
 		name: 'get_pull_request_context',
-		description: 'Read the title, description, and immutable commit SHAs for the pull request.',
+		description:
+			'Read the title, description, immutable commit SHAs, and unresolved threads from the latest prior Factory review.',
 		run() {
 			return {
 				output: {
@@ -25,6 +35,24 @@ export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 					body: reviewContext.body,
 					baseSha: reviewContext.baseSha,
 					headSha: reviewContext.headSha,
+					unresolvedReviewThreads: reviewContext.unresolvedReviewThreads.map(
+						(thread) => ({
+							threadId: thread.threadId,
+							reviewHeadSha: thread.reviewHeadSha,
+							body: thread.body,
+							path: thread.path,
+							line: thread.line,
+							originalLine: thread.originalLine,
+							diffSide: thread.diffSide,
+							startLine: thread.startLine,
+							originalStartLine: thread.originalStartLine,
+							startDiffSide: thread.startDiffSide,
+							subjectType: thread.subjectType,
+							isOutdated: thread.isOutdated,
+							diffHunk: thread.diffHunk,
+							url: thread.url,
+						}),
+					),
 				},
 			};
 		},
@@ -32,7 +60,8 @@ export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 
 	useTool({
 		name: 'list_changed_files',
-		description: 'List one page of files changed by the pull request. Pages contain up to 100 files.',
+		description:
+			'List one page of files changed by the pull request. Pages contain up to 100 files.',
 		input: v.object({ page: v.optional(pageSchema) }),
 		async run({ data }) {
 			const page = data.page ?? 1;
@@ -77,7 +106,9 @@ export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 					path: file.filename,
 					status: file.status,
 					patch: file.patch ?? null,
-					message: file.patch ? null : 'GitHub omitted this patch; use read_file for context.',
+					message: file.patch
+						? null
+						: 'GitHub omitted this patch; use read_file for context.',
 				},
 			};
 		},
@@ -98,7 +129,8 @@ export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 		async run({ data }) {
 			assertRepositoryPath(data.path);
 			const client = await reviewClient(reviewContext);
-			const ref = data.version === 'base' ? reviewContext.baseSha : reviewContext.headSha;
+			const ref =
+				data.version === 'base' ? reviewContext.baseSha : reviewContext.headSha;
 			const response = await client.rest.repos.getContent({
 				owner: reviewContext.owner,
 				repo: reviewContext.repo,
@@ -118,7 +150,11 @@ export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 				throw new Error(`${data.path} exceeds the 2 MiB review limit.`);
 			}
 
-			const source = decodeBlob(blob.data.content, blob.data.encoding, data.path);
+			const source = decodeBlob(
+				blob.data.content,
+				blob.data.encoding,
+				data.path,
+			);
 			const lines = source.split('\n');
 			const startLine = data.startLine ?? 1;
 			const lineCount = data.lineCount ?? 200;
@@ -139,8 +175,13 @@ export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 	});
 }
 
-async function reviewClient(reviewContext: ReviewAgentInput): Promise<InstallationClient> {
-	return createInstallationClient(credentialsFromProcess(), reviewContext.installationId);
+async function reviewClient(
+	reviewContext: ReviewAgentInput,
+): Promise<InstallationClient> {
+	return createInstallationClient(
+		credentialsFromProcess(),
+		reviewContext.installationId,
+	);
 }
 
 async function findChangedFile(
@@ -164,14 +205,21 @@ async function findChangedFile(
 }
 
 function assertRepositoryPath(path: string): void {
-	if (path.startsWith('/') || path.includes('\\') || path.split('/').includes('..')) {
+	if (
+		path.startsWith('/') ||
+		path.includes('\\') ||
+		path.split('/').includes('..')
+	) {
 		throw new Error('Repository paths must be safe relative paths.');
 	}
 }
 
 function decodeBlob(content: string, encoding: string, path: string): string {
-	if (encoding !== 'base64') throw new Error(`${path} uses unsupported encoding ${encoding}.`);
-	const bytes = Uint8Array.from(Buffer.from(content.replaceAll('\n', ''), 'base64'));
+	if (encoding !== 'base64')
+		throw new Error(`${path} uses unsupported encoding ${encoding}.`);
+	const bytes = Uint8Array.from(
+		Buffer.from(content.replaceAll('\n', ''), 'base64'),
+	);
 	if (bytes.includes(0)) throw new Error(`${path} is binary.`);
 	try {
 		return utf8Decoder.decode(bytes);
