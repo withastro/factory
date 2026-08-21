@@ -11,19 +11,31 @@ const labels = DEFAULT_TRIAGE_LABELS;
 
 describe('triage FSM', () => {
 	it('routes opened issue to triage', () => {
-		expect(route({ action: 'opened', issueState: 'open', issueLabels: [] }, labels)).toEqual({
+		expect(
+			route({ action: 'opened', issueState: 'open', issueLabels: [] }, labels),
+		).toEqual({
 			type: 'triage',
 		});
 	});
 
 	it('routes reopened issue to triage', () => {
-		expect(route({ action: 'reopened', issueState: 'open', issueLabels: [] }, labels)).toEqual({
+		expect(
+			route(
+				{ action: 'reopened', issueState: 'open', issueLabels: [] },
+				labels,
+			),
+		).toEqual({
 			type: 'triage',
 		});
 	});
 
 	it('routes closed issue to cleanup', () => {
-		expect(route({ action: 'closed', issueState: 'closed', issueLabels: [] }, labels)).toEqual({
+		expect(
+			route(
+				{ action: 'closed', issueState: 'closed', issueLabels: [] },
+				labels,
+			),
+		).toEqual({
 			type: 'cleanup',
 		});
 	});
@@ -31,7 +43,11 @@ describe('triage FSM', () => {
 	it('routes comment on fix-pending to verify-fix', () => {
 		expect(
 			route(
-				{ action: 'comment', issueState: 'open', issueLabels: ['triage: fix pending'] },
+				{
+					action: 'comment',
+					issueState: 'open',
+					issueLabels: ['triage: fix pending'],
+				},
 				labels,
 			),
 		).toEqual({ type: 'verify-fix' });
@@ -40,7 +56,11 @@ describe('triage FSM', () => {
 	it('restarts triage when a comment finds a stranded in-progress issue', () => {
 		expect(
 			route(
-				{ action: 'comment', issueState: 'open', issueLabels: [labels.inProgress] },
+				{
+					action: 'comment',
+					issueState: 'open',
+					issueLabels: [labels.inProgress],
+				},
 				labels,
 			),
 		).toEqual({ type: 'triage' });
@@ -56,7 +76,10 @@ describe('triage FSM', () => {
 	]) {
 		it(`routes comment on "${label}" to retriage`, () => {
 			expect(
-				route({ action: 'comment', issueState: 'open', issueLabels: [label] }, labels),
+				route(
+					{ action: 'comment', issueState: 'open', issueLabels: [label] },
+					labels,
+				),
 			).toEqual({
 				type: 'retriage',
 				currentLabel: label,
@@ -64,10 +87,17 @@ describe('triage FSM', () => {
 		});
 	}
 
-	for (const label of ['triage: fix verified', 'triage: not actionable', 'triage: skipped']) {
+	for (const label of [
+		'triage: fix verified',
+		'triage: not actionable',
+		'triage: skipped',
+	]) {
 		it(`skips comment on terminal label "${label}"`, () => {
 			expect(
-				route({ action: 'comment', issueState: 'open', issueLabels: [label] }, labels).type,
+				route(
+					{ action: 'comment', issueState: 'open', issueLabels: [label] },
+					labels,
+				).type,
 			).toBe('skip');
 		});
 	}
@@ -75,7 +105,11 @@ describe('triage FSM', () => {
 	it('skips comment on issue with no triage label', () => {
 		expect(
 			route(
-				{ action: 'comment', issueState: 'open', issueLabels: ['bug', 'pkg: astro'] },
+				{
+					action: 'comment',
+					issueState: 'open',
+					issueLabels: ['bug', 'pkg: astro'],
+				},
 				labels,
 			).type,
 		).toBe('skip');
@@ -89,7 +123,11 @@ describe('triage FSM', () => {
 		};
 		expect(
 			route(
-				{ action: 'comment', issueState: 'open', issueLabels: ['awaiting-confirmation'] },
+				{
+					action: 'comment',
+					issueState: 'open',
+					issueLabels: ['awaiting-confirmation'],
+				},
 				customLabels,
 			),
 		).toEqual({ type: 'verify-fix' });
@@ -111,19 +149,28 @@ describe('triage FSM on a closed issue', () => {
 				{ action: 'comment', issueState: 'closed', issueLabels: [label] },
 				labels,
 			);
-			expect(action.type, `comment on closed issue labelled "${label}"`).toBe('skip');
+			expect(action.type, `comment on closed issue labelled "${label}"`).toBe(
+				'skip',
+			);
 		}
 	});
 
 	it('skips a comment on an unlabelled closed issue', () => {
-		expect(route({ action: 'comment', issueState: 'closed', issueLabels: [] }, labels).type).toBe(
-			'skip',
-		);
+		expect(
+			route(
+				{ action: 'comment', issueState: 'closed', issueLabels: [] },
+				labels,
+			).type,
+		).toBe('skip');
 	});
 
 	it('reports being closed as the reason, not the label', () => {
 		const action = route(
-			{ action: 'comment', issueState: 'closed', issueLabels: ['triage: fix pending'] },
+			{
+				action: 'comment',
+				issueState: 'closed',
+				issueLabels: ['triage: fix pending'],
+			},
 			labels,
 		);
 		expect(action).toEqual({ type: 'skip', reason: 'The issue is closed.' });
@@ -134,7 +181,11 @@ describe('triage FSM on a closed issue', () => {
 		// closed issue.
 		expect(
 			route(
-				{ action: 'closed', issueState: 'closed', issueLabels: ['triage: fix pending'] },
+				{
+					action: 'closed',
+					issueState: 'closed',
+					issueLabels: ['triage: fix pending'],
+				},
 				labels,
 			),
 		).toEqual({ type: 'cleanup' });
@@ -142,9 +193,12 @@ describe('triage FSM on a closed issue', () => {
 
 	it('skips a reopen delivery for an issue that is closed again', () => {
 		// The delivery says what happened; the state says what is true now.
-		expect(route({ action: 'reopened', issueState: 'closed', issueLabels: [] }, labels).type).toBe(
-			'skip',
-		);
+		expect(
+			route(
+				{ action: 'reopened', issueState: 'closed', issueLabels: [] },
+				labels,
+			).type,
+		).toBe('skip');
 	});
 });
 

@@ -20,7 +20,9 @@ export function credentialsFromWorkerEnv(env: WorkerEnv): GitHubCredentials {
 export function credentialsFromProcess(): GitHubCredentials {
 	return {
 		appId: requiredProcessEnv('GITHUB_APP_ID'),
-		privateKey: normalizePrivateKey(requiredProcessEnv('GITHUB_APP_PRIVATE_KEY')),
+		privateKey: normalizePrivateKey(
+			requiredProcessEnv('GITHUB_APP_PRIVATE_KEY'),
+		),
 	};
 }
 
@@ -28,7 +30,10 @@ export async function createInstallationClient(
 	credentials: GitHubCredentials,
 	installationId: number,
 ): Promise<InstallationClient> {
-	const app = new App({ appId: credentials.appId, privateKey: credentials.privateKey });
+	const app = new App({
+		appId: credentials.appId,
+		privateKey: credentials.privateKey,
+	});
 	return app.getInstallationOctokit(installationId);
 }
 
@@ -40,9 +45,16 @@ export async function createInstallationClient(
 export async function createScopedInstallationToken(
 	credentials: GitHubCredentials,
 	installationId: number,
-	permissions: { contents?: 'read' | 'write'; issues?: 'read' | 'write'; metadata?: 'read' },
+	permissions: {
+		contents?: 'read' | 'write';
+		issues?: 'read' | 'write';
+		metadata?: 'read';
+	},
 ): Promise<string> {
-	const app = new App({ appId: credentials.appId, privateKey: credentials.privateKey });
+	const app = new App({
+		appId: credentials.appId,
+		privateKey: credentials.privateKey,
+	});
 	const response = await app.octokit.rest.apps.createInstallationAccessToken({
 		installation_id: installationId,
 		permissions,

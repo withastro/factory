@@ -5,7 +5,9 @@ import { resolveTriageLabel } from '../src/triage/resolve-label.ts';
 
 const labels = DEFAULT_TRIAGE_LABELS;
 
-function result(overrides: Partial<TriagePipelineResult> = {}): TriagePipelineResult {
+function result(
+	overrides: Partial<TriagePipelineResult> = {},
+): TriagePipelineResult {
 	return {
 		completedStage: 'fix',
 		reproducible: true,
@@ -24,20 +26,32 @@ const noExtras = { previewReleaseAvailable: false, prOpened: false };
 describe('resolveTriageLabel', () => {
 	it('maps skip reasons to their labels', () => {
 		expect(
-			resolveTriageLabel(result({ skipped: true, skippedReason: 'not-actionable' }), labels, noExtras),
+			resolveTriageLabel(
+				result({ skipped: true, skippedReason: 'not-actionable' }),
+				labels,
+				noExtras,
+			),
 		).toBe(labels.notActionable);
 		expect(
-			resolveTriageLabel(result({ skipped: true, skippedReason: 'missing-details' }), labels, noExtras),
+			resolveTriageLabel(
+				result({ skipped: true, skippedReason: 'missing-details' }),
+				labels,
+				noExtras,
+			),
 		).toBe(labels.needsReproduction);
 		expect(
-			resolveTriageLabel(result({ skipped: true, skippedReason: 'host-specific' }), labels, noExtras),
+			resolveTriageLabel(
+				result({ skipped: true, skippedReason: 'host-specific' }),
+				labels,
+				noExtras,
+			),
 		).toBe(labels.skipped);
 	});
 
 	it('maps reproduction and fix outcomes', () => {
-		expect(resolveTriageLabel(result({ reproducible: false }), labels, noExtras)).toBe(
-			labels.unableToReproduce,
-		);
+		expect(
+			resolveTriageLabel(result({ reproducible: false }), labels, noExtras),
+		).toBe(labels.unableToReproduce);
 		expect(resolveTriageLabel(result({ fixed: false }), labels, noExtras)).toBe(
 			labels.unableToFix,
 		);

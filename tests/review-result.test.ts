@@ -35,11 +35,7 @@ describe('structured review result extraction', () => {
 			addressedThreadIds: [],
 		};
 		expect(
-			extractReviewResult(
-				{ review: [persisted] },
-				severities,
-				areas,
-			),
+			extractReviewResult({ review: [persisted] }, severities, areas),
 		).toEqual(expected);
 		expect(parseReviewResult(persisted, severities, areas)).toEqual(expected);
 	});

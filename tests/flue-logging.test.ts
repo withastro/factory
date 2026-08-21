@@ -8,7 +8,10 @@ describe('createFlueEventLogger', () => {
 		const logger = createFlueEventLogger((line) => lines.push(line));
 
 		logger.present({ type: 'thinking_start' } as FlueEvent);
-		logger.present({ type: 'thinking_delta', delta: 'Checking files\n' } as FlueEvent);
+		logger.present({
+			type: 'thinking_delta',
+			delta: 'Checking files\n',
+		} as FlueEvent);
 		logger.present({ type: 'thinking_end' } as FlueEvent);
 		logger.present({
 			type: 'tool_start',
@@ -27,7 +30,11 @@ describe('createFlueEventLogger', () => {
 				details: { exitCode: 0 },
 			},
 		} as FlueEvent);
-		logger.present({ type: 'log', level: 'info', message: 'hello' } as FlueEvent);
+		logger.present({
+			type: 'log',
+			level: 'info',
+			message: 'hello',
+		} as FlueEvent);
 		logger.present({
 			type: 'compaction_start',
 			reason: 'threshold',
@@ -55,11 +62,18 @@ describe('createFlueEventLogger', () => {
 		const lines: string[] = [];
 		const logger = createFlueEventLogger((line) => lines.push(line));
 
-		logger.present({ type: 'text_delta', text: 'first line\npartial' } as FlueEvent);
+		logger.present({
+			type: 'text_delta',
+			text: 'first line\npartial',
+		} as FlueEvent);
 		logger.present({ type: 'text_delta', text: ' line\n' } as FlueEvent);
 		logger.present({ type: 'turn' } as FlueEvent);
 
-		expect(lines).toEqual(['[flue] assistant', '  first line', '  partial line']);
+		expect(lines).toEqual([
+			'[flue] assistant',
+			'  first line',
+			'  partial line',
+		]);
 	});
 
 	it('flushes a tokenized thought as one readable line', () => {
@@ -67,7 +81,15 @@ describe('createFlueEventLogger', () => {
 		const logger = createFlueEventLogger((line) => lines.push(line));
 
 		logger.present({ type: 'thinking_start' } as FlueEvent);
-		for (const delta of ['Actually', ',', ' line', ' 26', ' would', ' not', ' throw']) {
+		for (const delta of [
+			'Actually',
+			',',
+			' line',
+			' 26',
+			' would',
+			' not',
+			' throw',
+		]) {
 			logger.present({ type: 'thinking_delta', delta } as FlueEvent);
 		}
 		logger.present({ type: 'thinking_end' } as FlueEvent);

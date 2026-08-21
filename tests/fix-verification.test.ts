@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
 import * as v from 'valibot';
+import { describe, expect, it, vi } from 'vitest';
 import type { InstallationClient } from '../src/github/client.ts';
 import {
+	type FixVerifierInput,
 	fixVerdictSchema,
 	validateFixVerdict,
-	type FixVerifierInput,
 } from '../src/triage/contracts.ts';
 import {
 	acknowledgeRejectedFix,
@@ -40,7 +40,8 @@ function createClient(existingBodies: string[] = []) {
 			issues: { listComments, createComment },
 		},
 		paginate: vi.fn(async (method: unknown) => {
-			if (method !== listComments) throw new Error('Unexpected pagination method.');
+			if (method !== listComments)
+				throw new Error('Unexpected pagination method.');
 			return existingBodies.map((body) => ({ body }));
 		}),
 	} as unknown as InstallationClient;
@@ -62,7 +63,8 @@ function reject(
 }
 
 describe('fix verification', () => {
-	const parse = (input: unknown) => validateFixVerdict(v.parse(fixVerdictSchema, input));
+	const parse = (input: unknown) =>
+		validateFixVerdict(v.parse(fixVerdictSchema, input));
 
 	it('requires PR content only for confirmed verdicts', () => {
 		expect(fixVerdictSchema.type).toBe('object');
@@ -148,11 +150,15 @@ describe('fix verification', () => {
 		await expect(reject(client, 'specific')).resolves.toBe('retry');
 		expect(createComment.mock.calls[0]?.[0]).toEqual(
 			expect.objectContaining({
-				body: expect.stringContaining(fixFollowUpMarker('delivery-139', 'retry')),
+				body: expect.stringContaining(
+					fixFollowUpMarker('delivery-139', 'retry'),
+				),
 			}),
 		);
 		expect(createComment.mock.calls[0]?.[0]).toEqual(
-			expect.objectContaining({ body: expect.stringContaining('did not fully resolve') }),
+			expect.objectContaining({
+				body: expect.stringContaining('did not fully resolve'),
+			}),
 		);
 	});
 
@@ -161,19 +167,25 @@ describe('fix verification', () => {
 		await expect(reject(client, 'vague')).resolves.toBe('needs-details');
 		expect(createComment.mock.calls[0]?.[0]).toEqual(
 			expect.objectContaining({
-				body: expect.stringContaining('Which part of the original problem still happens?'),
+				body: expect.stringContaining(
+					'Which part of the original problem still happens?',
+				),
 			}),
 		);
 		expect(createComment.mock.calls[0]?.[0]).toEqual(
 			expect.objectContaining({
-				body: expect.stringContaining(fixFollowUpMarker('delivery-139', 'needs-details')),
+				body: expect.stringContaining(
+					fixFollowUpMarker('delivery-139', 'needs-details'),
+				),
 			}),
 		);
 	});
 
 	it('hands off to a maintainer once the retries are spent', async () => {
-		const spent = Array.from({ length: MAX_FIX_RETRIES }, (_, index) =>
-			`Retrying.\n\n${fixFollowUpMarker(`delivery-${index}`, 'retry')}`,
+		const spent = Array.from(
+			{ length: MAX_FIX_RETRIES },
+			(_, index) =>
+				`Retrying.\n\n${fixFollowUpMarker(`delivery-${index}`, 'retry')}`,
 		);
 		const { client, createComment } = createClient([
 			...spent,
@@ -182,7 +194,9 @@ describe('fix verification', () => {
 		await expect(reject(client, 'specific')).resolves.toBe('retry-limit');
 		expect(createComment.mock.calls[0]?.[0]).toEqual(
 			expect.objectContaining({
-				body: expect.stringContaining(`retried this fix ${MAX_FIX_RETRIES} times`),
+				body: expect.stringContaining(
+					`retried this fix ${MAX_FIX_RETRIES} times`,
+				),
 			}),
 		);
 	});

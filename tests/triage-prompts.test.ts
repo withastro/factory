@@ -30,7 +30,9 @@ const input: TriagePipelineInput = {
 describe('pipeline system prompt', () => {
 	it('starts a fresh run from the default branch', () => {
 		const prompt = pipelineSystemPrompt(input);
-		expect(prompt).toContain('on branch `factory/fix-139` (created from `main`)');
+		expect(prompt).toContain(
+			'on branch `factory/fix-139` (created from `main`)',
+		);
 		expect(prompt).not.toContain('existing candidate branch');
 	});
 

@@ -5,7 +5,11 @@ import {
 } from 'cloudflare:workers';
 import { init } from '@flue/runtime';
 import * as v from 'valibot';
-import { loadFactoryConfig, type PreviewReleaseConfig, type TriageConfig } from '../config.ts';
+import {
+	loadFactoryConfig,
+	type PreviewReleaseConfig,
+	type TriageConfig,
+} from '../config.ts';
 import type { WorkerEnv } from '../env.ts';
 import {
 	createInstallationClient,
@@ -26,6 +30,7 @@ import {
 	findOpenPullRequest,
 	getBranchHeadSha,
 	normalizeIssueState,
+	type PullRequestRef,
 	partitionClassificationLabels,
 	postIssueComment,
 	removeLabelIfPresent,
@@ -33,23 +38,22 @@ import {
 	saveIssueComment,
 	swapIssueLabel,
 	upsertIssueComment,
-	type PullRequestRef,
 } from '../github/issues.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
 import { FixVerifier } from './agents/fix-verifier.ts';
 import { RetriageJudge } from './agents/retriage-judge.ts';
 import { TriagePipeline } from './agents/triage-pipeline.ts';
 import {
+	type FixVerdict,
 	fixBranchName,
 	fixVerdictSchema,
 	legacyFixBranchNames,
 	retriageDecisionSchema,
+	type TriageWorkflowOutcome,
+	type TriageWorkflowParams,
 	triageCoordinatorKey,
 	triageWorkflowParamsSchema,
 	validateFixVerdict,
-	type FixVerdict,
-	type TriageWorkflowOutcome,
-	type TriageWorkflowParams,
 } from './contracts.ts';
 import { defaultTriageSkill } from './default-skill.ts';
 import {
@@ -58,7 +62,12 @@ import {
 	MAX_TRIAGE_FAILURES,
 } from './failure.ts';
 import { acknowledgeRejectedFix, MAX_FIX_RETRIES } from './fix-verification.ts';
-import { allTriageLabels, currentTriageLabel, labelAppearance } from './labels.ts';
+import { route, type TriageAction } from './fsm.ts';
+import {
+	allTriageLabels,
+	currentTriageLabel,
+	labelAppearance,
+} from './labels.ts';
 import {
 	commentResultSchema,
 	diagnoseResultSchema,
@@ -66,10 +75,21 @@ import {
 	labelSelectionSchema,
 	prContentSchema,
 	reproduceResultSchema,
-	verifyResultSchema,
 	type TriagePipelineInput,
 	type TriagePipelineResult,
+	verifyResultSchema,
 } from './pipeline-contracts.ts';
+import {
+	dispatchPreviewRelease,
+	findPreviewReleaseCheck,
+	formatPreviewReleaseSection,
+	parsePreviewReleasePayload,
+} from './preview-release.ts';
+import {
+	formatTriageProgress,
+	type TriageProgressState,
+	triageProgressMarker,
+} from './progress.ts';
 import {
 	commentStepPrompt,
 	diagnoseStepPrompt,
@@ -79,17 +99,6 @@ import {
 	reproduceStepPrompt,
 	verifyStepPrompt,
 } from './prompts.ts';
-import {
-	dispatchPreviewRelease,
-	findPreviewReleaseCheck,
-	formatPreviewReleaseSection,
-	parsePreviewReleasePayload,
-} from './preview-release.ts';
-import {
-	formatTriageProgress,
-	triageProgressMarker,
-	type TriageProgressState,
-} from './progress.ts';
 import { resolveTriageLabel } from './resolve-label.ts';
 import {
 	commitAndPush,
@@ -101,8 +110,10 @@ import {
 	triageSandboxId,
 	workspaceHasChanges,
 } from './sandbox.ts';
-import { BUILD_TIMEOUT_SECONDS, INSTALL_TIMEOUT_SECONDS } from './sandbox-utils.ts';
-import { route, type TriageAction } from './fsm.ts';
+import {
+	BUILD_TIMEOUT_SECONDS,
+	INSTALL_TIMEOUT_SECONDS,
+} from './sandbox-utils.ts';
 
 const STEP_RETRIES = {
 	retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
@@ -172,42 +183,63 @@ interface RoutedIssue {
 
 type RouteResult = { kind: 'disabled' } | ({ kind: 'ready' } & RoutedIssue);
 
-export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflowParams> {
+export class TriageWorkflow extends WorkflowEntrypoint<
+	WorkerEnv,
+	TriageWorkflowParams
+> {
 	override async run(
 		event: Readonly<WorkflowEvent<TriageWorkflowParams>>,
 		step: WorkflowStep,
 	): Promise<TriageWorkflowOutcome> {
 		const params = v.parse(triageWorkflowParamsSchema, event.payload);
-		const coordinator = this.env.TRIAGE_COORDINATOR.getByName(triageCoordinatorKey(params));
+		const coordinator = this.env.TRIAGE_COORDINATOR.getByName(
+			triageCoordinatorKey(params),
+		);
 		const completeCoordination = async () => {
 			const result = await coordinator.complete(params.deliveryId);
 			return {
 				completed: result.completed,
-				...(result.nextWorkflowId ? { nextWorkflowId: result.nextWorkflowId } : {}),
+				...(result.nextWorkflowId
+					? { nextWorkflowId: result.nextWorkflowId }
+					: {}),
 			};
 		};
-		await step.do('register triage coordination', async () => params.deliveryId, {
-			rollback: async () => {
-				await completeCoordination();
+		await step.do(
+			'register triage coordination',
+			async () => params.deliveryId,
+			{
+				rollback: async () => {
+					await completeCoordination();
+				},
+				rollbackConfig: STEP_RETRIES,
 			},
-			rollbackConfig: STEP_RETRIES,
-		});
+		);
 		const finishCoordination = () =>
-			step.do('complete triage coordination', STEP_RETRIES, completeCoordination);
-		const finish = async (outcome: TriageWorkflowOutcome): Promise<TriageWorkflowOutcome> => {
+			step.do(
+				'complete triage coordination',
+				STEP_RETRIES,
+				completeCoordination,
+			);
+		const finish = async (
+			outcome: TriageWorkflowOutcome,
+		): Promise<TriageWorkflowOutcome> => {
 			await finishCoordination();
 			return outcome;
 		};
 
 		const credentials = credentialsFromWorkerEnv(this.env);
-		const client = () => createInstallationClient(credentials, params.installationId);
+		const client = () =>
+			createInstallationClient(credentials, params.installationId);
 
 		const routed = await step.do('load issue and route', STEP_RETRIES, () =>
 			loadAndRoute(client, params),
 		);
 
 		if (routed.kind === 'disabled') {
-			return finish({ outcome: 'ignored', reason: 'Triage is disabled for this repository.' });
+			return finish({
+				outcome: 'ignored',
+				reason: 'Triage is disabled for this repository.',
+			});
 		}
 
 		switch (routed.action.type) {
@@ -216,11 +248,17 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			case 'cleanup':
 				return finish(await this.cleanup(step, client, params));
 			case 'triage':
-				return finish(await this.triage(step, client, credentials, params, routed));
+				return finish(
+					await this.triage(step, client, credentials, params, routed),
+				);
 			case 'retriage':
-				return finish(await this.retriage(step, client, credentials, params, routed));
+				return finish(
+					await this.retriage(step, client, credentials, params, routed),
+				);
 			case 'verify-fix':
-				return finish(await this.verifyFix(step, client, credentials, params, routed));
+				return finish(
+					await this.verifyFix(step, client, credentials, params, routed),
+				);
 		}
 	}
 
@@ -246,24 +284,28 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			issue.failureCount >= MAX_TRIAGE_FAILURES
 		) {
 			if (issue.currentLabel === triage.labels.inProgress) {
-				await step.do('repair exhausted triage state', STEP_RETRIES, async () => {
-					const api = await client();
-					await ensureLabelExists(
-						api,
-						params.owner,
-						params.repo,
-						triage.labels.failed,
-						labelAppearance(triage.labels.failed, triage.labels),
-					);
-					await replaceIssueLabels(
-						api,
-						params.owner,
-						params.repo,
-						params.issueNumber,
-						[triage.labels.inProgress],
-						triage.labels.failed,
-					);
-				});
+				await step.do(
+					'repair exhausted triage state',
+					STEP_RETRIES,
+					async () => {
+						const api = await client();
+						await ensureLabelExists(
+							api,
+							params.owner,
+							params.repo,
+							triage.labels.failed,
+							labelAppearance(triage.labels.failed, triage.labels),
+						);
+						await replaceIssueLabels(
+							api,
+							params.owner,
+							params.repo,
+							params.issueNumber,
+							[triage.labels.inProgress],
+							triage.labels.failed,
+						);
+					},
+				);
 			}
 			return {
 				outcome: 'skipped',
@@ -298,7 +340,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					triage.labels.inProgress,
 				);
 			});
-			progressComment.id = await startTriageProgress(step, client, params, progress);
+			progressComment.id = await startTriageProgress(
+				step,
+				client,
+				params,
+				progress,
+			);
 
 			return await this.runPipeline(
 				step,
@@ -361,23 +408,41 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		const { issue, triage } = routed;
 		const branch = fixBranch.name;
 
-		const skill = await step.do('resolve triage skill', STEP_RETRIES, async () => {
-			if (triage.skill) {
-				const api = await client();
-				return readSkillSnapshot(api, params.owner, params.repo, triage.skill, params.defaultBranch);
-			}
-			return defaultTriageSkill();
-		});
+		const skill = await step.do(
+			'resolve triage skill',
+			STEP_RETRIES,
+			async () => {
+				if (triage.skill) {
+					const api = await client();
+					return readSkillSnapshot(
+						api,
+						params.owner,
+						params.repo,
+						triage.skill,
+						params.defaultBranch,
+					);
+				}
+				return defaultTriageSkill();
+			},
+		);
 
-		const sandboxId = triageSandboxId(params.repositoryId, params.issueNumber, params.deliveryId);
+		const sandboxId = triageSandboxId(
+			params.repositoryId,
+			params.issueNumber,
+			params.deliveryId,
+		);
 		const sandbox = () => getTriageSandbox(this.env, sandboxId);
 		const setupWorkspace = async () => {
 			// Private repositories need an authenticated clone. Fetch a new token
 			// whenever a replacement container needs its ephemeral checkout restored.
 			const cloneToken = params.repoIsPrivate
-				? await createScopedInstallationToken(credentials, params.installationId, {
-						contents: 'read',
-					})
+				? await createScopedInstallationToken(
+						credentials,
+						params.installationId,
+						{
+							contents: 'read',
+						},
+					)
 				: undefined;
 			await setupTriageWorkspace(sandbox(), {
 				owner: params.owner,
@@ -390,7 +455,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			});
 		};
 		const agent = init(TriagePipeline, {
-			id: ['triage', params.repositoryId, params.issueNumber, params.deliveryId].join(':'),
+			id: [
+				'triage',
+				params.repositoryId,
+				params.issueNumber,
+				params.deliveryId,
+			].join(':'),
 		});
 		const agentInput: TriagePipelineInput = {
 			sandboxId,
@@ -416,7 +486,17 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			schema: S,
 			readTimeout: WorkflowSleepDuration,
 		): Promise<v.InferOutput<S>> =>
-			runPipelineStep(step, agent, agentInput, params, name, prompt, channel, schema, readTimeout);
+			runPipelineStep(
+				step,
+				agent,
+				agentInput,
+				params,
+				name,
+				prompt,
+				channel,
+				schema,
+				readTimeout,
+			);
 
 		// Released as soon as the last container-backed step is done rather than
 		// only on the way out, so a long external wait doesn't idle a sandbox.
@@ -426,7 +506,10 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			sandboxReleased = true;
 			await step.do(
 				'destroy sandbox',
-				{ retries: { limit: 1, delay: '5 seconds', backoff: 'constant' }, timeout: '2 minutes' },
+				{
+					retries: { limit: 1, delay: '5 seconds', backoff: 'constant' },
+					timeout: '2 minutes',
+				},
 				async () => {
 					await destroyTriageSandbox(sandbox());
 				},
@@ -436,7 +519,10 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		try {
 			await step.do(
 				'provision sandbox workspace',
-				{ retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' }, timeout: '20 minutes' },
+				{
+					retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' },
+					timeout: '20 minutes',
+				},
 				setupWorkspace,
 			);
 			progress.details.workspace = 'ready';
@@ -501,7 +587,10 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 						timeout: '35 minutes',
 					},
 					async () => {
-						const recovered = await ensureTriageWorkspace(sandbox(), setupWorkspace);
+						const recovered = await ensureTriageWorkspace(
+							sandbox(),
+							setupWorkspace,
+						);
 						if (recovered && triage.installCommand.length > 0) {
 							await runCheckoutCommands(
 								sandbox(),
@@ -510,7 +599,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 								INSTALL_TIMEOUT_SECONDS,
 							);
 						}
-						await runCheckoutCommands(sandbox(), 'build', buildCommand, BUILD_TIMEOUT_SECONDS);
+						await runCheckoutCommands(
+							sandbox(),
+							'build',
+							buildCommand,
+							BUILD_TIMEOUT_SECONDS,
+						);
 					},
 				);
 				progress.details.build = 'complete';
@@ -649,7 +743,10 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 
 			const pushed = await step.do(
 				'commit and push fix branch',
-				{ retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' }, timeout: '15 minutes' },
+				{
+					retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' },
+					timeout: '15 minutes',
+				},
 				async () => {
 					const changes = await workspaceHasChanges(
 						sandbox(),
@@ -688,10 +785,14 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 
 			let pullRequest: PullRequestRef | null = null;
 			if (result.fixed && pushed.pushed && triage.autoPrOnFix) {
-				const existing = await step.do('find existing pull request', STEP_RETRIES, async () => {
-					const api = await client();
-					return findOpenPullRequest(api, params.owner, params.repo, branch);
-				});
+				const existing = await step.do(
+					'find existing pull request',
+					STEP_RETRIES,
+					async () => {
+						const api = await client();
+						return findOpenPullRequest(api, params.owner, params.repo, branch);
+					},
+				);
 				if (existing) {
 					pullRequest = existing;
 				} else {
@@ -702,35 +803,54 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 						prContentSchema,
 						'10 minutes',
 					);
-					pullRequest = await step.do('create pull request', STEP_RETRIES, async () => {
-						const api = await client();
-						const created = await createPullRequest(api, params.owner, params.repo, {
-							head: branch,
-							base: params.defaultBranch,
-							title: content.title,
-							body: content.body,
-						});
-						await ensureLabelExists(
-							api,
-							params.owner,
-							params.repo,
-							triage.labels.prFixVerified,
-							labelAppearance(triage.labels.prFixVerified, triage.labels),
-						);
-						await addIssueLabels(api, params.owner, params.repo, created.number, [
-							triage.labels.prFixVerified,
-						]);
-						return created;
-					});
+					pullRequest = await step.do(
+						'create pull request',
+						STEP_RETRIES,
+						async () => {
+							const api = await client();
+							const created = await createPullRequest(
+								api,
+								params.owner,
+								params.repo,
+								{
+									head: branch,
+									base: params.defaultBranch,
+									title: content.title,
+									body: content.body,
+								},
+							);
+							await ensureLabelExists(
+								api,
+								params.owner,
+								params.repo,
+								triage.labels.prFixVerified,
+								labelAppearance(triage.labels.prFixVerified, triage.labels),
+							);
+							await addIssueLabels(
+								api,
+								params.owner,
+								params.repo,
+								created.number,
+								[triage.labels.prFixVerified],
+							);
+							return created;
+						},
+					);
 				}
 			}
 
 			// ----- comment and classification content (needs the sandbox) -----
 
-			const repoLabels = await step.do('fetch repository labels', STEP_RETRIES, async () => {
-				const api = await client();
-				return partitionClassificationLabels(await fetchRepoLabels(api, params.owner, params.repo));
-			});
+			const repoLabels = await step.do(
+				'fetch repository labels',
+				STEP_RETRIES,
+				async () => {
+					const api = await client();
+					return partitionClassificationLabels(
+						await fetchRepoLabels(api, params.owner, params.repo),
+					);
+				},
+			);
 
 			const generated = await pipelineStep(
 				'comment',
@@ -750,24 +870,34 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			const chosenLabels: string[] = [];
 			if (
 				result.reproducible &&
-				(repoLabels.priorityLabels.length > 0 || repoLabels.packageLabels.length > 0)
+				(repoLabels.priorityLabels.length > 0 ||
+					repoLabels.packageLabels.length > 0)
 			) {
 				const selection = await pipelineStep(
 					'label-selection',
-					labelSelectionPrompt(repoLabels.priorityLabels, repoLabels.packageLabels),
+					labelSelectionPrompt(
+						repoLabels.priorityLabels,
+						repoLabels.packageLabels,
+					),
 					'labels',
 					labelSelectionSchema,
 					'10 minutes',
 				);
-				const priorityNames = new Set(repoLabels.priorityLabels.map((label) => label.name));
-				const packageNames = new Set(repoLabels.packageLabels.map((label) => label.name));
+				const priorityNames = new Set(
+					repoLabels.priorityLabels.map((label) => label.name),
+				);
+				const packageNames = new Set(
+					repoLabels.packageLabels.map((label) => label.name),
+				);
 				selectedPriority =
 					selection.priority && priorityNames.has(selection.priority)
 						? selection.priority
 						: null;
 				chosenLabels.push(
 					...(selectedPriority ? [selectedPriority] : []),
-					...selection.packages.filter((name) => packageNames.has(name)).slice(0, 3),
+					...selection.packages
+						.filter((name) => packageNames.has(name))
+						.slice(0, 3),
 				);
 				priorityLabelsToRemove.push(
 					...computePriorityLabelsToRemove(
@@ -788,7 +918,13 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			// "fix verified" and a maintainer owns it from here.
 			const preview =
 				result.fixed && pushed.pushed && pullRequest === null
-					? await this.publishPreviewRelease(step, client, params, triage, branch)
+					? await this.publishPreviewRelease(
+							step,
+							client,
+							params,
+							triage,
+							branch,
+						)
 					: { available: false, section: null, detail: 'not applicable' };
 
 			// ----- classification labels, comment, and final state -----
@@ -807,9 +943,15 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 							params.repo,
 							params.issueNumber,
 							label,
-							);
+						);
 					}
-					await addIssueLabels(api, params.owner, params.repo, params.issueNumber, chosenLabels);
+					await addIssueLabels(
+						api,
+						params.owner,
+						params.repo,
+						params.issueNumber,
+						chosenLabels,
+					);
 				});
 			}
 
@@ -825,33 +967,37 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				current: 'complete',
 				details: { ...progress.details, publish: `set \`${newLabel}\`` },
 			};
-			await step.do('publish triage result and swap state label', STEP_RETRIES, async () => {
-				const api = await client();
-				await saveIssueComment(
-					api,
-					params.owner,
-					params.repo,
-					params.issueNumber,
-					progressComment.id,
-					triageProgressMarker(params.deliveryId),
-					formatTriageProgress(params.deliveryId, completedProgress, comment),
-				);
-				await ensureLabelExists(
-					api,
-					params.owner,
-					params.repo,
-					newLabel,
-					labelAppearance(newLabel, triage.labels),
-				);
-				await replaceIssueLabels(
-					api,
-					params.owner,
-					params.repo,
-					params.issueNumber,
-					[issue.currentLabel, triage.labels.inProgress],
-					newLabel,
-				);
-			});
+			await step.do(
+				'publish triage result and swap state label',
+				STEP_RETRIES,
+				async () => {
+					const api = await client();
+					await saveIssueComment(
+						api,
+						params.owner,
+						params.repo,
+						params.issueNumber,
+						progressComment.id,
+						triageProgressMarker(params.deliveryId),
+						formatTriageProgress(params.deliveryId, completedProgress, comment),
+					);
+					await ensureLabelExists(
+						api,
+						params.owner,
+						params.repo,
+						newLabel,
+						labelAppearance(newLabel, triage.labels),
+					);
+					await replaceIssueLabels(
+						api,
+						params.owner,
+						params.repo,
+						params.issueNumber,
+						[issue.currentLabel, triage.labels.inProgress],
+						newLabel,
+					);
+				},
+			);
 			progress.current = 'complete';
 			progress.details.publish = completedProgress.details.publish;
 
@@ -886,9 +1032,16 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		branch: string,
 	): Promise<PreviewReleaseOutcome> {
 		const preview = triage.previewRelease;
-		if (!preview) return { available: false, section: null, detail: 'not configured' };
+		if (!preview)
+			return { available: false, section: null, detail: 'not configured' };
 
-		const outcome = await this.runPreviewRelease(step, client, params, preview, branch);
+		const outcome = await this.runPreviewRelease(
+			step,
+			client,
+			params,
+			preview,
+			branch,
+		);
 		// The whole point of the feature is invisible in the issue timeline when
 		// it doesn't work out, so leave a breadcrumb.
 		console.log(
@@ -914,46 +1067,67 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		try {
 			// Results are reported against the exact commit that was pushed, so
 			// a later push can never be mistaken for this run's preview.
-			const headSha = await step.do('resolve fix branch head', STEP_RETRIES, async () => {
-				const api = await client();
-				return getBranchHeadSha(api, params.owner, params.repo, branch);
-			});
+			const headSha = await step.do(
+				'resolve fix branch head',
+				STEP_RETRIES,
+				async () => {
+					const api = await client();
+					return getBranchHeadSha(api, params.owner, params.repo, branch);
+				},
+			);
 			if (!headSha) {
-				return { available: false, section: null, detail: 'the fix branch has no head commit' };
+				return {
+					available: false,
+					section: null,
+					detail: 'the fix branch has no head commit',
+				};
 			}
 
-			const dispatch = await step.do('dispatch preview release', STEP_RETRIES, async () => {
-				const api = await client();
-				return dispatchPreviewRelease(api, {
-					owner: params.owner,
-					repo: params.repo,
-					workflow: preview.workflow,
-					// The workflow definition comes from maintainer-controlled
-					// content; only the branch to build is agent-authored.
-					ref: params.defaultBranch,
-					branch,
-					issueNumber: params.issueNumber,
-				});
-			});
+			const dispatch = await step.do(
+				'dispatch preview release',
+				STEP_RETRIES,
+				async () => {
+					const api = await client();
+					return dispatchPreviewRelease(api, {
+						owner: params.owner,
+						repo: params.repo,
+						workflow: preview.workflow,
+						// The workflow definition comes from maintainer-controlled
+						// content; only the branch to build is agent-authored.
+						ref: params.defaultBranch,
+						branch,
+						issueNumber: params.issueNumber,
+					});
+				},
+			);
 			if (!dispatch.dispatched) {
 				return { available: false, section: null, detail: dispatch.detail };
 			}
 
 			for (let attempt = 1; attempt <= PREVIEW_POLL_ATTEMPTS; attempt += 1) {
-				await step.sleep(`await preview release ${attempt}`, PREVIEW_POLL_INTERVAL);
+				await step.sleep(
+					`await preview release ${attempt}`,
+					PREVIEW_POLL_INTERVAL,
+				);
 				const check = await step.do(
 					`read preview release check ${attempt}`,
 					STEP_RETRIES,
 					async () => {
 						const api = await client();
-						return findPreviewReleaseCheck(api, params.owner, params.repo, headSha, {
-							checkName: preview.checkName,
-							appSlug: preview.checkApp,
-						});
+						return findPreviewReleaseCheck(
+							api,
+							params.owner,
+							params.repo,
+							headSha,
+							{
+								checkName: preview.checkName,
+								appSlug: preview.checkApp,
+							},
+						);
 					},
 				);
 
-				if (!check || check.status !== 'completed') continue;
+				if (check?.status !== 'completed') continue;
 				if (check.conclusion !== 'success') {
 					return {
 						available: false,
@@ -962,7 +1136,10 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 					};
 				}
 
-				const packages = parsePreviewReleasePayload(check.summary, preview.allowedHosts);
+				const packages = parsePreviewReleasePayload(
+					check.summary,
+					preview.allowedHosts,
+				);
 				if (packages.length === 0) {
 					return {
 						available: false,
@@ -977,7 +1154,11 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				};
 			}
 
-			return { available: false, section: null, detail: 'the preview release timed out' };
+			return {
+				available: false,
+				section: null,
+				detail: 'the preview release timed out',
+			};
 		} catch (error) {
 			return {
 				available: false,
@@ -994,18 +1175,24 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		client: () => Promise<InstallationClient>,
 		params: TriageWorkflowParams,
 	): Promise<TriageWorkflowOutcome> {
-		const deletedBranch = await step.do('delete fix branch', STEP_RETRIES, async () => {
-			const api = await client();
-			for (const branch of [
-				fixBranchName(params.issueNumber),
-				...legacyFixBranchNames(params.issueNumber),
-			]) {
-				if (await deleteBranchIfPresent(api, params.owner, params.repo, branch)) {
-					return branch;
+		const deletedBranch = await step.do(
+			'delete fix branch',
+			STEP_RETRIES,
+			async () => {
+				const api = await client();
+				for (const branch of [
+					fixBranchName(params.issueNumber),
+					...legacyFixBranchNames(params.issueNumber),
+				]) {
+					if (
+						await deleteBranchIfPresent(api, params.owner, params.repo, branch)
+					) {
+						return branch;
+					}
 				}
-			}
-			return null;
-		});
+				return null;
+			},
+		);
 		return { outcome: 'cleaned-up', deletedBranch };
 	}
 
@@ -1028,7 +1215,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		}
 
 		const agent = init(RetriageJudge, {
-			id: ['retriage', params.repositoryId, params.issueNumber, params.deliveryId].join(':'),
+			id: [
+				'retriage',
+				params.repositoryId,
+				params.issueNumber,
+				params.deliveryId,
+			].join(':'),
 		});
 		const receipt = await step.do('dispatch retriage judge', async () =>
 			agent.dispatch({
@@ -1052,7 +1244,10 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		);
 		const decision = await step.do(
 			'read retriage decision',
-			{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: '15 minutes' },
+			{
+				retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' },
+				timeout: '15 minutes',
+			},
 			async () => {
 				const reply = await agent.read(receipt);
 				return extractLastWrite('decision', reply.data, retriageDecisionSchema);
@@ -1071,7 +1266,14 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				? await this.findFixBranch(step, client, params)
 				: null;
 
-		return this.restartTriage(step, client, credentials, params, routed, fixBranch ?? undefined);
+		return this.restartTriage(
+			step,
+			client,
+			credentials,
+			params,
+			routed,
+			fixBranch ?? undefined,
+		);
 	}
 
 	/** The fix branch for this issue and the commit it currently points at. */
@@ -1087,7 +1289,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 				...legacyFixBranchNames(params.issueNumber),
 			]);
 			if (!name) return null;
-			const headSha = await getBranchHeadSha(api, params.owner, params.repo, name);
+			const headSha = await getBranchHeadSha(
+				api,
+				params.owner,
+				params.repo,
+				name,
+			);
 			return headSha ? { name, headSha } : null;
 		});
 	}
@@ -1151,11 +1358,19 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			};
 		}
 		if (!issue.latestNonBotComment) {
-			return { outcome: 'skipped', reason: 'No non-bot comment found to classify.' };
+			return {
+				outcome: 'skipped',
+				reason: 'No non-bot comment found to classify.',
+			};
 		}
 
 		const agent = init(FixVerifier, {
-			id: ['fix-verify', params.repositoryId, params.issueNumber, params.deliveryId].join(':'),
+			id: [
+				'fix-verify',
+				params.repositoryId,
+				params.issueNumber,
+				params.deliveryId,
+			].join(':'),
 		});
 		const receipt = await step.do('dispatch fix verifier', async () =>
 			agent.dispatch({
@@ -1182,10 +1397,17 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 		);
 		const verdict = await step.do(
 			'read fix verdict',
-			{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: '15 minutes' },
+			{
+				retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' },
+				timeout: '15 minutes',
+			},
 			async () => {
 				const reply = await agent.read(receipt);
-				const verdict = extractLastWrite('verdict', reply.data, fixVerdictSchema);
+				const verdict = extractLastWrite(
+					'verdict',
+					reply.data,
+					fixVerdictSchema,
+				);
 				return validateFixVerdict(verdict);
 			},
 		);
@@ -1216,16 +1438,20 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			// The verifier has already read the comment, so what happens next is
 			// decided from its verdict rather than from another agent run — and
 			// long before a pipeline run has been spent on it.
-			const action = await step.do('acknowledge rejected fix', STEP_RETRIES, async () => {
-				const api = await client();
-				return acknowledgeRejectedFix(api, {
-					owner: params.owner,
-					repo: params.repo,
-					issueNumber: params.issueNumber,
-					deliveryId: params.deliveryId,
-					feedback: verdict.feedback ?? 'vague',
-				});
-			});
+			const action = await step.do(
+				'acknowledge rejected fix',
+				STEP_RETRIES,
+				async () => {
+					const api = await client();
+					return acknowledgeRejectedFix(api, {
+						owner: params.owner,
+						repo: params.repo,
+						issueNumber: params.issueNumber,
+						deliveryId: params.deliveryId,
+						feedback: verdict.feedback ?? 'vague',
+					});
+				},
+			);
 			// `fix rejected` is re-triageable, so the reporter's next comment
 			// runs the RetriageJudge and picks the candidate back up from there.
 			if (action === 'needs-details') {
@@ -1253,13 +1479,28 @@ export class TriageWorkflow extends WorkflowEntrypoint<WorkerEnv, TriageWorkflow
 			);
 		}
 
-		const pullRequest = await step.do('open or find pull request', STEP_RETRIES, async () => {
-			const api = await client();
-			const existing = await findOpenPullRequest(api, params.owner, params.repo, fixBranch.name);
-			if (existing) return { ...existing, created: false };
-			const created = await openFixPullRequest(api, params, triage, fixBranch.name, verdict);
-			return { ...created, created: true };
-		});
+		const pullRequest = await step.do(
+			'open or find pull request',
+			STEP_RETRIES,
+			async () => {
+				const api = await client();
+				const existing = await findOpenPullRequest(
+					api,
+					params.owner,
+					params.repo,
+					fixBranch.name,
+				);
+				if (existing) return { ...existing, created: false };
+				const created = await openFixPullRequest(
+					api,
+					params,
+					triage,
+					fixBranch.name,
+					verdict,
+				);
+				return { ...created, created: true };
+			},
+		);
 
 		await step.do('mark fix verified', STEP_RETRIES, async () => {
 			const api = await client();
@@ -1373,10 +1614,20 @@ async function loadAndRoute(
 	params: TriageWorkflowParams,
 ): Promise<RouteResult> {
 	const api = await client();
-	const { config } = await loadFactoryConfig(api, params.owner, params.repo, params.defaultBranch);
+	const { config } = await loadFactoryConfig(
+		api,
+		params.owner,
+		params.repo,
+		params.defaultBranch,
+	);
 	if (!config.triage.enabled) return { kind: 'disabled' };
 
-	const details = await fetchIssueDetails(api, params.owner, params.repo, params.issueNumber);
+	const details = await fetchIssueDetails(
+		api,
+		params.owner,
+		params.repo,
+		params.issueNumber,
+	);
 	const action = route(
 		{
 			action: params.issueAction,
@@ -1389,13 +1640,16 @@ async function loadAndRoute(
 		config.triage.labels,
 	);
 
-	const conversation = details.comments.slice(-MAX_CONVERSATION_ENTRIES).map((comment) => ({
-		author: comment.author.login,
-		association: comment.authorAssociation,
-		isBot: comment.authorIsBot,
-		body: comment.body.slice(0, MAX_COMMENT_BODY),
-	}));
-	const latestNonBot = [...conversation].reverse().find((comment) => !comment.isBot) ?? null;
+	const conversation = details.comments
+		.slice(-MAX_CONVERSATION_ENTRIES)
+		.map((comment) => ({
+			author: comment.author.login,
+			association: comment.authorAssociation,
+			isBot: comment.authorIsBot,
+			body: comment.body.slice(0, MAX_COMMENT_BODY),
+		}));
+	const latestNonBot =
+		[...conversation].reverse().find((comment) => !comment.isBot) ?? null;
 
 	return {
 		kind: 'ready',
@@ -1448,12 +1702,18 @@ async function runPipelineStep<S extends v.GenericSchema>(
 	);
 	const value = await step.do(
 		`read pipeline step: ${name}`,
-		{ retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' }, timeout: readTimeout },
+		{
+			retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' },
+			timeout: readTimeout,
+		},
 		async () => {
 			const reply = await agent.read(receipt);
 			// Step results must be JSON-serializable; every pipeline schema is a
 			// plain object, so the cast is safe.
-			return extractLastWrite(channel, reply.data, schema) as unknown as Record<string, string>;
+			return extractLastWrite(channel, reply.data, schema) as unknown as Record<
+				string,
+				string
+			>;
 		},
 	);
 	return value as unknown as v.InferOutput<S>;
@@ -1495,7 +1755,9 @@ function extractLastWrite<S extends v.GenericSchema>(
 ): v.InferOutput<S> {
 	const writes = data[channel];
 	if (!writes?.length) {
-		throw new Error(`The agent completed without writing a "${channel}" result.`);
+		throw new Error(
+			`The agent completed without writing a "${channel}" result.`,
+		);
 	}
 	return v.parse(schema, writes.at(-1));
 }

@@ -84,7 +84,9 @@ export function createFlueEventLogger(
 					break;
 				case 'compaction_start':
 					flush();
-					write(`[flue] compaction:start reason=${event.reason} tokens=${event.estimatedTokens}`);
+					write(
+						`[flue] compaction:start reason=${event.reason} tokens=${event.estimatedTokens}`,
+					);
 					break;
 				case 'compaction':
 					write(
@@ -103,7 +105,8 @@ export function createFlueEventLogger(
 }
 
 function alreadySeenToolCall(event: FlueEvent, seen: Set<string>): boolean {
-	if (!('toolCallId' in event) || typeof event.toolCallId !== 'string') return false;
+	if (!('toolCallId' in event) || typeof event.toolCallId !== 'string')
+		return false;
 	if (seen.has(event.toolCallId)) return true;
 	seen.add(event.toolCallId);
 	return false;
@@ -117,7 +120,8 @@ function formatToolArgs(event: FlueEvent): string {
 }
 
 function formatDuration(event: FlueEvent): string {
-	if (!('durationMs' in event) || typeof event.durationMs !== 'number') return '';
+	if (!('durationMs' in event) || typeof event.durationMs !== 'number')
+		return '';
 	return ` (${event.durationMs}ms)`;
 }
 
@@ -144,7 +148,8 @@ function extractTextResult(value: unknown): string | null {
 function readPath(value: unknown, path: string[]): unknown {
 	let current = value;
 	for (const key of path) {
-		if (!current || typeof current !== 'object' || !(key in current)) return undefined;
+		if (!current || typeof current !== 'object' || !(key in current))
+			return undefined;
 		current = (current as Record<string, unknown>)[key];
 	}
 	return current;

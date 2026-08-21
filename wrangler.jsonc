@@ -6,7 +6,11 @@
 	"compatibility_date": "2026-08-10",
 	"compatibility_flags": ["nodejs_compat"],
 	"secrets": {
-		"required": ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET"]
+		"required": [
+			"GITHUB_APP_ID",
+			"GITHUB_APP_PRIVATE_KEY",
+			"GITHUB_WEBHOOK_SECRET"
+		]
 	},
 	"ai": {
 		"binding": "AI"

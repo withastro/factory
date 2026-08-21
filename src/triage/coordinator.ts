@@ -1,8 +1,8 @@
 import * as v from 'valibot';
 import { QueueCoordinator } from '../coordination/queue-coordinator.ts';
 import {
-	triageWorkflowParamsSchema,
 	type TriageWorkflowParams,
+	triageWorkflowParamsSchema,
 } from './contracts.ts';
 
 interface TriageCoordinatorEnv {

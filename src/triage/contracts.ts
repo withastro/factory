@@ -21,7 +21,9 @@ export const triageWorkflowParamsSchema = v.object({
 	repoIsPrivate: v.optional(v.boolean(), false),
 });
 
-export type TriageWorkflowParams = v.InferOutput<typeof triageWorkflowParamsSchema>;
+export type TriageWorkflowParams = v.InferOutput<
+	typeof triageWorkflowParamsSchema
+>;
 
 export function triageCoordinatorKey(
 	input: Pick<TriageWorkflowParams, 'repositoryId' | 'issueNumber'>,
@@ -112,7 +114,9 @@ export function validateFixVerdict(verdict: FixVerdict): FixVerdict {
 		throw new Error('Only a confirmed verdict may include PR content.');
 	}
 	if (verdict.status === 'rejected' && !verdict.feedback) {
-		throw new Error('A rejected verdict must classify the feedback as specific or vague.');
+		throw new Error(
+			'A rejected verdict must classify the feedback as specific or vague.',
+		);
 	}
 	if (verdict.status !== 'rejected' && verdict.feedback) {
 		throw new Error('Only a rejected verdict may classify the feedback.');

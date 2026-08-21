@@ -5,8 +5,8 @@ import {
 	DEFAULT_TRIAGE_LABELS,
 	labelAppearance,
 	retriageableLabels,
-	terminalLabels,
 	TRIAGE_LABEL_APPEARANCE,
+	terminalLabels,
 } from '../src/triage/labels.ts';
 
 describe('triage labels', () => {
@@ -21,19 +21,28 @@ describe('triage labels', () => {
 		// fixPending and inProgress have dedicated FSM routes.
 		expect([...retriageable, ...terminal]).toHaveLength(9);
 		expect(all).toEqual(
-			expect.arrayContaining([DEFAULT_TRIAGE_LABELS.fixPending, DEFAULT_TRIAGE_LABELS.inProgress]),
+			expect.arrayContaining([
+				DEFAULT_TRIAGE_LABELS.fixPending,
+				DEFAULT_TRIAGE_LABELS.inProgress,
+			]),
 		);
 	});
 
 	it('finds the current triage label among unrelated labels', () => {
 		expect(
-			currentTriageLabel(['bug', 'triage: fix pending', 'pkg: astro'], DEFAULT_TRIAGE_LABELS),
+			currentTriageLabel(
+				['bug', 'triage: fix pending', 'pkg: astro'],
+				DEFAULT_TRIAGE_LABELS,
+			),
 		).toBe('triage: fix pending');
 		expect(currentTriageLabel(['bug'], DEFAULT_TRIAGE_LABELS)).toBeNull();
 	});
 
 	it('resolves appearances for renamed labels', () => {
-		const custom = { ...DEFAULT_TRIAGE_LABELS, fixPending: 'awaiting-confirmation' };
+		const custom = {
+			...DEFAULT_TRIAGE_LABELS,
+			fixPending: 'awaiting-confirmation',
+		};
 		expect(labelAppearance('awaiting-confirmation', custom)).toEqual(
 			TRIAGE_LABEL_APPEARANCE.fixPending,
 		);
@@ -42,7 +51,8 @@ describe('triage labels', () => {
 
 	it('defines an appearance for every label so creation always has colors', () => {
 		for (const key of Object.keys(DEFAULT_TRIAGE_LABELS)) {
-			const appearance = TRIAGE_LABEL_APPEARANCE[key as keyof typeof DEFAULT_TRIAGE_LABELS];
+			const appearance =
+				TRIAGE_LABEL_APPEARANCE[key as keyof typeof DEFAULT_TRIAGE_LABELS];
 			expect(appearance.color).toMatch(/^[0-9a-f]{6}$/);
 			expect(appearance.description.length).toBeGreaterThan(0);
 		}

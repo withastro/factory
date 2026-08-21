@@ -67,7 +67,9 @@ export async function fetchIssueDetails(
 		url: issue.data.html_url,
 		author: { login: issue.data.user?.login ?? '' },
 		authorAssociation: issue.data.author_association,
-		labels: issue.data.labels.map((label) => (typeof label === 'string' ? label : (label.name ?? ''))),
+		labels: issue.data.labels.map((label) =>
+			typeof label === 'string' ? label : (label.name ?? ''),
+		),
 		createdAt: issue.data.created_at,
 		comments: comments.map((comment) => ({
 			author: { login: comment.user?.login ?? '' },
@@ -112,7 +114,9 @@ export function computePriorityLabelsToRemove(
 	priorityLabels: RepoLabel[],
 ): string[] {
 	const priorityNames = new Set(priorityLabels.map((label) => label.name));
-	return issueLabels.filter((label) => priorityNames.has(label) && label !== selectedPriority);
+	return issueLabels.filter(
+		(label) => priorityNames.has(label) && label !== selectedPriority,
+	);
 }
 
 export async function fetchRepoLabels(
@@ -125,7 +129,10 @@ export async function fetchRepoLabels(
 		repo,
 		per_page: 100,
 	});
-	return labels.map((label) => ({ name: label.name, description: label.description ?? null }));
+	return labels.map((label) => ({
+		name: label.name,
+		description: label.description ?? null,
+	}));
 }
 
 /**
@@ -167,7 +174,12 @@ export async function addIssueLabels(
 	labels: string[],
 ): Promise<void> {
 	if (labels.length === 0) return;
-	await client.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels });
+	await client.rest.issues.addLabels({
+		owner,
+		repo,
+		issue_number: issueNumber,
+		labels,
+	});
 }
 
 export async function removeLabelIfPresent(
@@ -178,7 +190,12 @@ export async function removeLabelIfPresent(
 	label: string,
 ): Promise<void> {
 	try {
-		await client.rest.issues.removeLabel({ owner, repo, issue_number: issueNumber, name: label });
+		await client.rest.issues.removeLabel({
+			owner,
+			repo,
+			issue_number: issueNumber,
+			name: label,
+		});
 	} catch (error) {
 		if (!isGitHubStatus(error, 404)) throw error;
 	}
@@ -246,7 +263,13 @@ export async function upsertIssueComment(
 	body: string,
 ): Promise<number> {
 	const markedBody = body.includes(marker) ? body : `${body}\n\n${marker}`;
-	const existing = await findMarkedBotComment(client, owner, repo, issueNumber, marker);
+	const existing = await findMarkedBotComment(
+		client,
+		owner,
+		repo,
+		issueNumber,
+		marker,
+	);
 	if (existing) {
 		await client.rest.issues.updateComment({
 			owner,
@@ -269,7 +292,13 @@ export async function upsertIssueComment(
 		return response.data.id;
 	} catch (error) {
 		// The server may have committed the comment before the request failed.
-		const committed = await findMarkedBotComment(client, owner, repo, issueNumber, marker);
+		const committed = await findMarkedBotComment(
+			client,
+			owner,
+			repo,
+			issueNumber,
+			marker,
+		);
 		if (committed) return committed.id;
 		throw error;
 	}
@@ -299,7 +328,14 @@ export async function saveIssueComment(
 			if (!isGitHubStatus(error, 404)) throw error;
 		}
 	}
-	return upsertIssueComment(client, owner, repo, issueNumber, marker, markedBody);
+	return upsertIssueComment(
+		client,
+		owner,
+		repo,
+		issueNumber,
+		marker,
+		markedBody,
+	);
 }
 
 async function findMarkedBotComment(
@@ -387,7 +423,11 @@ export async function getBranchHeadSha(
 	branch: string,
 ): Promise<string | null> {
 	try {
-		const response = await client.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+		const response = await client.rest.git.getRef({
+			owner,
+			repo,
+			ref: `heads/${branch}`,
+		});
 		return response.data.object.sha;
 	} catch (error) {
 		if (isGitHubStatus(error, 404)) return null;

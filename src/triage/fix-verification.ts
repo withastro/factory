@@ -39,7 +39,10 @@ const MARKER_PATTERN = new RegExp(
 
 export function fixVerifierPrompt(input: FixVerifierInput): string {
 	const conversation = input.conversation
-		.map((c) => `**@${c.author}** (${c.association}${c.isBot ? ', bot' : ''}):\n${c.body}`)
+		.map(
+			(c) =>
+				`**@${c.author}** (${c.association}${c.isBot ? ', bot' : ''}):\n${c.body}`,
+		)
 		.join('\n\n---\n\n');
 
 	return `You are reviewing a GitHub issue comment to determine if the commenter is confirming that a proposed fix works.
@@ -98,7 +101,10 @@ When (and only when) the status is confirmed, also draft the pull request that w
 Finish by calling submit_fix_verification exactly once with the status, brief reasoning, the feedback classification (null unless rejected), and the PR content (null unless confirmed).`;
 }
 
-export function fixFollowUpMarker(deliveryId: string, action: FixRejectionAction): string {
+export function fixFollowUpMarker(
+	deliveryId: string,
+	action: FixRejectionAction,
+): string {
 	return `<!-- ${MARKER_PREFIX}:delivery=${encodeURIComponent(deliveryId)};action=${action} -->`;
 }
 
@@ -147,7 +153,9 @@ export async function acknowledgeRejectedFix(
 
 	let priorRetries = 0;
 	for (const comment of comments) {
-		for (const [, delivery, action] of (comment.body ?? '').matchAll(MARKER_PATTERN)) {
+		for (const [, delivery, action] of (comment.body ?? '').matchAll(
+			MARKER_PATTERN,
+		)) {
 			// This delivery already announced an action; say the same thing again.
 			if (delivery === encodeURIComponent(input.deliveryId)) {
 				return action as FixRejectionAction;

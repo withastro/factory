@@ -45,5 +45,8 @@ export function modelProvider(specifier: string): string | undefined {
 /** Whether a specifier names a bundled provider and a non-empty model. */
 export function isSupportedModel(specifier: string): boolean {
 	const provider = modelProvider(specifier);
-	return provider !== undefined && (MODEL_PROVIDERS as readonly string[]).includes(provider);
+	return (
+		provider !== undefined &&
+		(MODEL_PROVIDERS as readonly string[]).includes(provider)
+	);
 }

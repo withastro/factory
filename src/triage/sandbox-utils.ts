@@ -29,7 +29,9 @@ export function triageSandboxId(
 	deliveryId: string,
 ): string {
 	const cleanDelivery = deliveryId.toLowerCase().replaceAll(/[^a-z0-9]/g, '');
-	return `t-${repositoryId}-${issueNumber}-${cleanDelivery}`.slice(0, 63).replace(/-+$/, '');
+	return `t-${repositoryId}-${issueNumber}-${cleanDelivery}`
+		.slice(0, 63)
+		.replace(/-+$/, '');
 }
 
 export function shellQuote(value: string): string {
@@ -81,7 +83,10 @@ export function existingFixFetchScript(
 	].join(' && ');
 }
 
-export function fixBranchCheckoutCommand(branch: string, headSha?: string): string {
+export function fixBranchCheckoutCommand(
+	branch: string,
+	headSha?: string,
+): string {
 	assertGitRef(branch);
 	if (headSha) assertGitCommit(headSha);
 	return `git checkout -B ${shellQuote(branch)}${headSha ? ` ${shellQuote(headSha)}` : ''}`;
@@ -93,7 +98,11 @@ export function fixBranchCheckoutCommand(branch: string, headSha?: string): stri
  * wrote themselves, so "install 2/3" is the difference between a useful failure
  * comment and a mystery.
  */
-export function commandStageLabel(stage: string, index: number, total: number): string {
+export function commandStageLabel(
+	stage: string,
+	index: number,
+	total: number,
+): string {
 	return total > 1 ? `${stage} ${index + 1}/${total}` : stage;
 }
 
@@ -104,7 +113,11 @@ export function assertRepoIdentifier(value: string): void {
 }
 
 export function assertGitRef(value: string): void {
-	if (value.startsWith('-') || !/^[A-Za-z0-9._\/-]+$/.test(value) || value.includes('..')) {
+	if (
+		value.startsWith('-') ||
+		!/^[A-Za-z0-9._/-]+$/.test(value) ||
+		value.includes('..')
+	) {
 		throw new Error(`Unsafe git ref: ${JSON.stringify(value)}`);
 	}
 }

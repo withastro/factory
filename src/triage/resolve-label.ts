@@ -7,8 +7,8 @@
  * "needs triage" when there is nothing for them to try.
  */
 
-import type { TriagePipelineResult } from './pipeline-contracts.ts';
 import type { TriageLabelConfig } from './labels.ts';
+import type { TriagePipelineResult } from './pipeline-contracts.ts';
 
 export function resolveTriageLabel(
 	result: TriagePipelineResult,
@@ -17,13 +17,16 @@ export function resolveTriageLabel(
 ): string {
 	if (result.skipped) {
 		if (result.skippedReason === 'not-actionable') return labels.notActionable;
-		if (result.skippedReason === 'missing-details') return labels.needsReproduction;
+		if (result.skippedReason === 'missing-details')
+			return labels.needsReproduction;
 		return labels.skipped;
 	}
 	if (!result.reproducible) return labels.unableToReproduce;
 	if (result.fixed) {
 		if (options.prOpened) return labels.fixVerified;
-		return options.previewReleaseAvailable ? labels.fixPending : labels.needsTriage;
+		return options.previewReleaseAvailable
+			? labels.fixPending
+			: labels.needsTriage;
 	}
 	return labels.unableToFix;
 }

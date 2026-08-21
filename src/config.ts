@@ -20,16 +20,27 @@ import {
 	MODEL_PROVIDERS,
 	VERIFICATION_MODEL,
 } from './models.ts';
-import { DEFAULT_TRIAGE_LABELS, type TriageLabelConfig } from './triage/labels.ts';
+import {
+	DEFAULT_TRIAGE_LABELS,
+	type TriageLabelConfig,
+} from './triage/labels.ts';
 import {
 	DEFAULT_PREVIEW_CHECK_APP,
 	DEFAULT_PREVIEW_CHECK_NAME,
 	DEFAULT_PREVIEW_HOSTS,
 } from './triage/preview-release.ts';
 
-export const REPOSITORY_CONFIG_PATHS = ['.github/factory.yml', '.github/factory.yaml'] as const;
+export const REPOSITORY_CONFIG_PATHS = [
+	'.github/factory.yml',
+	'.github/factory.yaml',
+] as const;
 
-export const DEFAULT_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
+export const DEFAULT_SEVERITIES = [
+	'critical',
+	'high',
+	'medium',
+	'low',
+] as const;
 export const DEFAULT_AREAS = [
 	'design',
 	'correctness',
@@ -55,7 +66,9 @@ export const DEFAULT_AREAS = [
  * A repository that isn't a pnpm workspace has to say so with
  * `installCommand: []`, or its own install command.
  */
-export const DEFAULT_INSTALL_COMMAND = ['pnpm install --no-frozen-lockfile'] as const;
+export const DEFAULT_INSTALL_COMMAND = [
+	'pnpm install --no-frozen-lockfile',
+] as const;
 
 const classificationValueSchema = v.pipe(
 	v.string(),
@@ -69,12 +82,19 @@ const classificationListSchema = v.pipe(
 	v.minLength(1),
 	v.maxLength(50),
 	v.check(
-		(values) => new Set(values.map((value) => value.toLowerCase())).size === values.length,
+		(values) =>
+			new Set(values.map((value) => value.toLowerCase())).size ===
+			values.length,
 		'Classification values must be unique.',
 	),
 );
 
-const labelNameSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(50));
+const labelNameSchema = v.pipe(
+	v.string(),
+	v.trim(),
+	v.minLength(1),
+	v.maxLength(50),
+);
 
 /**
  * A `<provider>/<model>` specifier. Validated here rather than at the first
@@ -109,6 +129,7 @@ const commandTextSchema = v.pipe(
 	v.string(),
 	v.maxLength(MAX_COMMANDS * MAX_COMMAND_LENGTH),
 	v.check(
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: checked un purpose
 		(value) => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value),
 		'A command must not contain control characters.',
 	),
@@ -192,7 +213,9 @@ const factoryConfigSchema = v.object({
 						v.transform((value) => value.replace(/^\.github\/workflows\//, '')),
 						v.regex(/^[A-Za-z0-9._-]+\.ya?ml$/),
 					),
-					check: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100))),
+					check: v.optional(
+						v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100)),
+					),
 					checkApp: v.optional(
 						v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100)),
 					),
@@ -326,16 +349,23 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 		triage: {
 			enabled: config.triage?.enabled ?? true,
 			autoPrOnFix: config.triage?.autoPrOnFix ?? false,
-			skill: config.triage?.skill ? validateSkillDirectory(config.triage.skill) : undefined,
+			skill: config.triage?.skill
+				? validateSkillDirectory(config.triage.skill)
+				: undefined,
 			model: config.triage?.model ?? CODE_MODEL,
 			verificationModel: config.triage?.verificationModel ?? VERIFICATION_MODEL,
-			installCommand: config.triage?.installCommand ?? [...DEFAULT_INSTALL_COMMAND],
+			installCommand: config.triage?.installCommand ?? [
+				...DEFAULT_INSTALL_COMMAND,
+			],
 			buildCommand: config.triage?.buildCommand ?? [],
 			previewRelease: config.triage?.previewRelease
 				? {
 						workflow: config.triage.previewRelease.workflow,
-						checkName: config.triage.previewRelease.check ?? DEFAULT_PREVIEW_CHECK_NAME,
-						checkApp: config.triage.previewRelease.checkApp ?? DEFAULT_PREVIEW_CHECK_APP,
+						checkName:
+							config.triage.previewRelease.check ?? DEFAULT_PREVIEW_CHECK_NAME,
+						checkApp:
+							config.triage.previewRelease.checkApp ??
+							DEFAULT_PREVIEW_CHECK_APP,
 						allowedHosts: config.triage.previewRelease.allowedHosts ?? [
 							...DEFAULT_PREVIEW_HOSTS,
 						],

@@ -11,9 +11,9 @@ import {
 } from '@flue/runtime';
 import { Bash, InMemoryFs } from 'just-bash';
 import {
+	type RetriageJudgeInput,
 	retriageDecisionSchema,
 	retriageJudgeInputSchema,
-	type RetriageJudgeInput,
 } from '../contracts.ts';
 
 /**
@@ -27,7 +27,9 @@ export function RetriageJudge() {
 
 	useSandbox(bash(() => new Bash({ fs: new InMemoryFs() })));
 
-	const writeDecision = useDataWriter('decision', { schema: retriageDecisionSchema });
+	const writeDecision = useDataWriter('decision', {
+		schema: retriageDecisionSchema,
+	});
 	useTool({
 		name: 'submit_retriage_decision',
 		description: 'Submit the final decision. Call exactly once.',

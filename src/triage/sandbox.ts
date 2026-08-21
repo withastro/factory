@@ -28,15 +28,15 @@ import {
 	commandStageLabel,
 	existingFixFetchScript,
 	fixBranchCheckoutCommand,
-	redactToken,
 	REPO_DIR,
+	redactToken,
 	shellQuote,
+	TRIAGE_DIR,
 	tail,
 	triageSandboxId,
-	TRIAGE_DIR,
 } from './sandbox-utils.ts';
 
-export { REPO_DIR, shellQuote, triageSandboxId, TRIAGE_DIR };
+export { REPO_DIR, shellQuote, TRIAGE_DIR, triageSandboxId };
 
 /**
  * Directories the pipeline writes that must never be committed or pushed.
@@ -123,7 +123,11 @@ export async function setupTriageWorkspace(
 		await execOrThrow(
 			sandbox,
 			'fetch existing fix',
-			existingFixFetchScript(setup.fixBranch, setup.fixBranchHead, setup.cloneToken),
+			existingFixFetchScript(
+				setup.fixBranch,
+				setup.fixBranchHead,
+				setup.cloneToken,
+			),
 			900,
 		);
 	}
@@ -148,7 +152,10 @@ export async function setupTriageWorkspace(
 	await sandbox.writeFile(`${REPO_DIR}/.git/info/exclude`, `${excludes}\n`);
 
 	for (const [path, content] of Object.entries(setup.skill.files)) {
-		await sandbox.writeFile(`${REPO_DIR}/${setup.skill.directory}/${path}`, content);
+		await sandbox.writeFile(
+			`${REPO_DIR}/${setup.skill.directory}/${path}`,
+			content,
+		);
 	}
 }
 
@@ -157,7 +164,12 @@ export async function ensureTriageWorkspace(
 	sandbox: Pick<TriageSandbox, 'exec'>,
 	setup: () => Promise<void>,
 ): Promise<boolean> {
-	const checkout = await exec(sandbox, 'check workspace', `test -d ${REPO_DIR}/.git`, 30);
+	const checkout = await exec(
+		sandbox,
+		'check workspace',
+		`test -d ${REPO_DIR}/.git`,
+		30,
+	);
 	if (checkout.success) return false;
 
 	await setup();
@@ -219,7 +231,10 @@ export async function workspaceHasChanges(
 		`cd ${REPO_DIR} && git diff ${shellQuote(baseRef)} --stat`,
 		120,
 	);
-	return { diff: diff.stdout.trim().length > 0, dirty: status.stdout.trim().length > 0 };
+	return {
+		diff: diff.stdout.trim().length > 0,
+		dirty: status.stdout.trim().length > 0,
+	};
 }
 
 /**
@@ -252,7 +267,10 @@ export async function commitAndPush(
 			120,
 		);
 		if (!commit.success) {
-			return { pushed: false, detail: `git commit failed: ${tail(commit.stderr)}` };
+			return {
+				pushed: false,
+				detail: `git commit failed: ${tail(commit.stderr)}`,
+			};
 		}
 	}
 
@@ -264,13 +282,18 @@ export async function commitAndPush(
 		300,
 	);
 	if (!push.success) {
-		return { pushed: false, detail: `git push failed: ${redactToken(tail(push.stderr))}` };
+		return {
+			pushed: false,
+			detail: `git push failed: ${redactToken(tail(push.stderr))}`,
+		};
 	}
 	return { pushed: true, detail: 'pushed' };
 }
 
 /** Destroy the sandbox, tolerating failures — it sleeps on its own anyway. */
-export async function destroyTriageSandbox(sandbox: TriageSandbox): Promise<void> {
+export async function destroyTriageSandbox(
+	sandbox: TriageSandbox,
+): Promise<void> {
 	try {
 		await Promise.race([
 			sandbox.destroy(),

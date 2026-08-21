@@ -43,7 +43,9 @@ export function formatTriageProgress(
 			(stage.id !== 'build' || state.includeBuild),
 	);
 	const currentIndex =
-		state.current === 'complete' ? stages.length : stages.findIndex((stage) => stage.id === state.current);
+		state.current === 'complete'
+			? stages.length
+			: stages.findIndex((stage) => stage.id === state.current);
 	const heading = state.failed
 		? 'Triage stopped'
 		: state.current === 'complete'

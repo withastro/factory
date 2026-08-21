@@ -11,10 +11,10 @@ import {
 } from '@flue/runtime';
 import { Bash, InMemoryFs } from 'just-bash';
 import {
+	type FixVerifierInput,
 	fixVerdictSchema,
 	fixVerifierInputSchema,
 	validateFixVerdict,
-	type FixVerifierInput,
 } from '../contracts.ts';
 import { fixVerifierPrompt } from '../fix-verification.ts';
 

@@ -72,7 +72,12 @@ function createHarness() {
 	};
 	const coordinator = new ReviewCoordinator(
 		{ storage } as unknown as DurableObjectState,
-		{ REVIEW_WORKFLOW: { create, get } as unknown as Workflow<ReviewWorkflowParams> },
+		{
+			REVIEW_WORKFLOW: {
+				create,
+				get,
+			} as unknown as Workflow<ReviewWorkflowParams>,
+		},
 	);
 	return {
 		coordinator,
@@ -91,7 +96,9 @@ describe('queue coordinator', () => {
 	it('starts the first workflow immediately', async () => {
 		const { coordinator, create } = createHarness();
 
-		await expect(coordinator.enqueue(reviewParams('delivery-1'))).resolves.toEqual({
+		await expect(
+			coordinator.enqueue(reviewParams('delivery-1')),
+		).resolves.toEqual({
 			disposition: 'started',
 			workflowId: 'delivery-1',
 		});
@@ -105,7 +112,9 @@ describe('queue coordinator', () => {
 		const { coordinator, create, getAlarm } = createHarness();
 		await coordinator.enqueue(reviewParams('delivery-1'));
 
-		await expect(coordinator.enqueue(reviewParams('delivery-2'))).resolves.toEqual({
+		await expect(
+			coordinator.enqueue(reviewParams('delivery-2')),
+		).resolves.toEqual({
 			disposition: 'queued',
 			workflowId: 'delivery-2',
 			activeWorkflowId: 'delivery-1',
@@ -146,7 +155,9 @@ describe('queue coordinator', () => {
 		const { coordinator, create } = createHarness();
 		await coordinator.enqueue(reviewParams('delivery-1'));
 
-		await expect(coordinator.enqueue(reviewParams('delivery-1'))).resolves.toEqual({
+		await expect(
+			coordinator.enqueue(reviewParams('delivery-1')),
+		).resolves.toEqual({
 			disposition: 'deduplicated',
 			workflowId: 'delivery-1',
 		});
@@ -168,8 +179,10 @@ describe('queue coordinator', () => {
 
 	it('normalizes queued records through the params schema on load', async () => {
 		const { coordinator, create, seedState, statuses } = createHarness();
-		const { configurationSha: _activeSha, ...active } = reviewParams('delivery-1');
-		const { configurationSha: _pendingSha, ...pending } = reviewParams('delivery-2');
+		const { configurationSha: _activeSha, ...active } =
+			reviewParams('delivery-1');
+		const { configurationSha: _pendingSha, ...pending } =
+			reviewParams('delivery-2');
 		seedState({ active: { params: active, phase: 'running' }, pending });
 		statuses.set('delivery-1', 'errored');
 
