@@ -37,6 +37,7 @@ review:
 				enabled: true,
 				autoPrOnFix: false,
 				skill: undefined,
+				prWriterSkill: undefined,
 				model: CODE_MODEL,
 				verificationModel: VERIFICATION_MODEL,
 				installCommand: [...DEFAULT_INSTALL_COMMAND],
@@ -281,6 +282,19 @@ triage:
 		).toBe('.agents/skills/triage');
 		expect(() =>
 			parseFactoryConfig('version: 1\ntriage:\n  skill: skills/triage'),
+		).toThrow();
+	});
+
+	it('validates the PR writer skill path', () => {
+		expect(
+			parseFactoryConfig(
+				'version: 1\ntriage:\n  prWriterSkill: .agents/skills/astro-pr-writer',
+			).triage.prWriterSkill,
+		).toBe('.agents/skills/astro-pr-writer');
+		expect(() =>
+			parseFactoryConfig(
+				'version: 1\ntriage:\n  prWriterSkill: skills/astro-pr-writer',
+			),
 		).toThrow();
 	});
 

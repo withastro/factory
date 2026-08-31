@@ -130,9 +130,33 @@ export const prContentSchema = v.object({
 	body: v.pipe(
 		nonEmptyString,
 		v.maxLength(20_000),
+		v.check((body) => {
+			const headings = topLevelHeadings(body);
+			return (
+				headings.length === 3 &&
+				headings[0] === '## Changes' &&
+				headings[1] === '## Testing' &&
+				headings[2] === '## Docs'
+			);
+		}, 'The PR body must use the Changes, Testing, and Docs sections in that order.'),
 		v.description('The PR body in markdown'),
 	),
 });
+
+function topLevelHeadings(markdown: string): string[] {
+	const headings: string[] = [];
+	let fence: '`' | '~' | undefined;
+	for (const line of markdown.split('\n')) {
+		const delimiter = /^(`{3,}|~{3,})/.exec(line)?.[1];
+		if (delimiter) {
+			if (!fence) fence = delimiter[0] as '`' | '~';
+			else if (delimiter[0] === fence) fence = undefined;
+			continue;
+		}
+		if (!fence && line.startsWith('## ')) headings.push(line.trimEnd());
+	}
+	return headings;
+}
 
 export type ReproduceResult = v.InferOutput<typeof reproduceResultSchema>;
 export type DiagnoseResult = v.InferOutput<typeof diagnoseResultSchema>;

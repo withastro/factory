@@ -197,6 +197,7 @@ const factoryConfigSchema = v.object({
 			enabled: v.optional(v.boolean()),
 			autoPrOnFix: v.optional(v.boolean()),
 			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+			prWriterSkill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 			model: v.optional(modelSchema),
 			verificationModel: v.optional(modelSchema),
 			installCommand: v.optional(commandListSchema),
@@ -279,6 +280,8 @@ export interface TriageConfig {
 	autoPrOnFix: boolean;
 	/** Repository skill override; the bundled default skill is used when absent. */
 	skill: string | undefined;
+	/** Repository skill with additional pull request writing guidance. */
+	prWriterSkill: string | undefined;
 	/** `<provider>/<model>` for the reproduce/diagnose/fix pipeline agent. */
 	model: string;
 	/**
@@ -322,6 +325,7 @@ export function defaultFactoryConfig(): FactoryConfig {
 			enabled: true,
 			autoPrOnFix: false,
 			skill: undefined,
+			prWriterSkill: undefined,
 			model: CODE_MODEL,
 			verificationModel: VERIFICATION_MODEL,
 			installCommand: [...DEFAULT_INSTALL_COMMAND],
@@ -351,6 +355,9 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 			autoPrOnFix: config.triage?.autoPrOnFix ?? false,
 			skill: config.triage?.skill
 				? validateSkillDirectory(config.triage.skill)
+				: undefined,
+			prWriterSkill: config.triage?.prWriterSkill
+				? validateSkillDirectory(config.triage.prWriterSkill)
 				: undefined,
 			model: config.triage?.model ?? CODE_MODEL,
 			verificationModel: config.triage?.verificationModel ?? VERIFICATION_MODEL,

@@ -39,7 +39,7 @@ import {
 	swapIssueLabel,
 	upsertIssueComment,
 } from '../github/issues.ts';
-import { readSkillSnapshot } from '../github/skill.ts';
+import { readSkillSnapshot, type SkillSnapshot } from '../github/skill.ts';
 import { FixVerifier } from './agents/fix-verifier.ts';
 import { RetriageJudge } from './agents/retriage-judge.ts';
 import { TriagePipeline } from './agents/triage-pipeline.ts';
@@ -103,6 +103,7 @@ import {
 	destroyTriageSandbox,
 	ensureTriageWorkspace,
 	getTriageSandbox,
+	mountTriageSkill,
 	runCheckoutCommands,
 	setupTriageWorkspace,
 	triageSandboxId,
@@ -413,6 +414,15 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				return defaultTriageSkill();
 			},
 		);
+		const prWriterSkill = triage.autoPrOnFix
+			? await resolvePrWriterSkill(
+					step,
+					client,
+					params,
+					triage,
+					skill.directory,
+				)
+			: undefined;
 
 		const sandboxId = triageSandboxId(
 			params.repositoryId,
@@ -777,9 +787,19 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				if (existing) {
 					pullRequest = existing;
 				} else {
+					if (prWriterSkill) {
+						await step.do('mount PR writer skill', async () => {
+							await mountTriageSkill(sandbox(), prWriterSkill);
+						});
+					}
 					const content = await pipelineStep(
 						'pr-content',
-						prContentPrompt(params.issueNumber, branch, params.defaultBranch),
+						prContentPrompt(
+							params.issueNumber,
+							branch,
+							params.defaultBranch,
+							prWriterSkill,
+						),
 						'pr',
 						prContentSchema,
 						'10 minutes',
@@ -1292,6 +1312,12 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				reason: 'No non-bot comment found to classify.',
 			};
 		}
+		const prWriterSkill = await resolvePrWriterSkill(
+			step,
+			client,
+			params,
+			triage,
+		);
 
 		const agent = init(FixVerifier, {
 			id: [
@@ -1313,6 +1339,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					defaultBranch: params.defaultBranch,
 					conversation: issue.conversation.slice(-10),
 					latestComment: issue.latestNonBotComment,
+					prWriterSkill,
 					model: triage.verificationModel,
 				},
 				idempotencyKey: params.deliveryId,
@@ -1629,6 +1656,30 @@ async function openFixPullRequest(
 		triage.labels.prFixVerified,
 	]);
 	return pull;
+}
+
+async function resolvePrWriterSkill(
+	step: WorkflowStep,
+	client: () => Promise<InstallationClient>,
+	params: TriageWorkflowParams,
+	triage: TriageConfig,
+	reservedDirectory?: string,
+): Promise<SkillSnapshot | undefined> {
+	const directory = triage.prWriterSkill;
+	if (!directory) return undefined;
+	if (directory === reservedDirectory) {
+		throw new Error('The PR writer skill must differ from the triage skill.');
+	}
+	return step.do('resolve PR writer skill', STEP_RETRIES, async () => {
+		const api = await client();
+		return readSkillSnapshot(
+			api,
+			params.owner,
+			params.repo,
+			directory,
+			params.defaultBranch,
+		);
+	});
 }
 
 function extractLastWrite<S extends v.GenericSchema>(

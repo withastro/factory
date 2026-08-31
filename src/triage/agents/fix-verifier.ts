@@ -15,6 +15,7 @@ import {
 	fixVerdictSchema,
 	fixVerifierInputSchema,
 } from '../contracts.ts';
+import { prWritingInstructions } from '../prompts.ts';
 
 /**
  * Classifies whether the latest comment on a fix-pending issue confirms that
@@ -25,7 +26,17 @@ export function FixVerifier() {
 	const input = useInitialData<FixVerifierInput>();
 	useModel(input.model);
 
-	useSandbox(bash(() => new Bash({ fs: new InMemoryFs() })));
+	useSandbox(
+		bash(
+			() =>
+				new Bash({
+					fs: new InMemoryFs(prWriterSkillFiles(input), {
+						maxTotalBytes: 512 * 1024,
+					}),
+				}),
+		),
+		{ cwd: '/workspace' },
+	);
 
 	const writeVerdict = useDataWriter('verdict', { schema: fixVerdictSchema });
 	useTool({
@@ -102,12 +113,22 @@ Examples of comments that are NEITHER (inconclusive):
 - Acknowledgment without testing ("Thanks, I'll try it later")
 
 When (and only when) the comment is a positive confirmation, also draft the pull request that will carry the fix:
-- A concise, descriptive PR title (not a commit message — no "fix:" prefix).
-- A PR body that briefly explains what the fix does and why, notes that the reporter (@${input.latestComment.author}) confirmed the fix, and includes "Closes #${input.issueNumber}".
-- Keep it short and useful for reviewers.
+
+${prWritingInstructions(input.issueNumber, input.prWriterSkill)}
 
 Finish by calling submit_fix_verification exactly once with the status, brief reasoning, and the PR content (null unless confirmed).`;
 }
 
 FixVerifier.initialData = fixVerifierInputSchema;
 FixVerifier.durability = { maxAttempts: 5, timeoutMs: 10 * 60 * 1_000 };
+
+function prWriterSkillFiles(input: FixVerifierInput): Record<string, string> {
+	const skill = input.prWriterSkill;
+	if (!skill) return {};
+	return Object.fromEntries(
+		Object.entries(skill.files).map(([path, content]) => [
+			`/workspace/${skill.directory}/${path}`,
+			content,
+		]),
+	);
+}
