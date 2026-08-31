@@ -1,0 +1,67 @@
+.github/workflows/ci.yml
+  s_faccf4656968ac::t_ef36dcf36b38ea 5,7-14,19,25-31,33-46
+README.md
+  s_faccf4656968ac::t_3a8e5ffffc536e 20-21,93-109,309-310,324-336,342
+pnpm-lock.yaml
+  s_7b2e141f3f38a5::t_22e2ae45f6d61a 14-16,50,53,348-364,1364-1366,1535-1539,3268-3275,3524,3527,3599,3603,4194-4195,4314-4315,4318,4337
+src/cloudflare.ts
+  s_7b2e141f3f38a5::t_40cd1df810548f 7-8
+src/env.ts
+  s_7b2e141f3f38a5::t_642f9b613362ea 2-3,16-20
+src/release-security/agent-sandbox.ts
+  s_faccf4656968ac::t_bc425128663875 1-267
+src/release-security/checks.ts
+  s_faccf4656968ac::t_1b8f6338772aab 1-135
+src/release-security/code-output.ts
+  s_faccf4656968ac::t_6345e6999aa0fc 1-18
+src/release-security/git-analysis.ts
+  s_7b2e141f3f38a5::t_57bf52a1efb8be 1-224
+src/release-security/github.ts
+  s_faccf4656968ac::t_01e0785e64477f 1-176
+src/release-security/public-output.ts
+  s_faccf4656968ac::t_445d5baa5e7ae5 1-41
+src/release-security/publication.ts
+  s_7b2e141f3f38a5::t_a5ee6d809dd574 1-67
+src/release-security/release-baselines.ts
+  s_faccf4656968ac::t_2e72fac6f11461 1-299
+src/release-security/report-store.ts
+  s_faccf4656968ac::t_09785c5239bbd7 1-29
+src/release-security/workflow.ts
+  s_73ae370e3f0238::t_0d9667a31e7446 1-328
+src/release-security/workspace.ts
+  s_7b2e141f3f38a5::t_19a2a090c78195 1-51
+tests/router.test.ts
+  s_faccf4656968ac::t_0531a529a9a540 13-29,64-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f7353b1e1a6eaeb3d58d98d43d0b7a8c645acec3",
+  "prompts": {},
+  "sessions": {
+    "s_73ae370e3f0238": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fb67a7e38ffe36uZm59Pb9AjL5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    },
+    "s_7b2e141f3f38a5": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa76f1be1ffehDw2js7mjmFE84",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    },
+    "s_faccf4656968ac": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_004719bfdffeYQz1rr0JN3hIHj",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    }
+  }
+}
