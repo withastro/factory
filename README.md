@@ -17,7 +17,8 @@ Built by combining [withastro/astro-review](https://github.com/withastro/astro-r
 GitHub webhooks ─→ Hono ingress (signature verification)
                     └→ router.ts (pure rule table: event → capability dispatch)
                         ├→ ReviewCoordinator DO (one per PR)  ─→ ReviewWorkflow ─→ PullRequestReviewer agent
-                        └→ TriageCoordinator DO (one per issue) ─→ TriageWorkflow ─→ FixVerifier / RetriageJudge agents
+                        ├→ TriageCoordinator DO (one per issue) ─→ TriageWorkflow ─→ FixVerifier / RetriageJudge agents
+                        └→ ReleaseSecurityCoordinator DO (one per PR) ─→ ReleaseSecurityWorkflow ─→ ReleaseSecurityReviewer agent
 ```
 
 - **Router** (`src/router.ts`): deterministic and pure. `pull_request.labeled`
@@ -88,6 +89,23 @@ labels (visible, maintainer-overridable):
 
 Missing labels are created automatically with sensible colors, so installing
 on a fresh repository requires no setup.
+
+### Release security (`src/release-security/`)
+
+Factory privately reviews same-repository `withastro/astro` release PRs from
+`changeset-release/<base>` when they are opened, reopened, or synchronized. A
+smoke-only path uses `release-security-test/<base>` with the exact title
+`[test] release security reviewer`; it checks model health without performing a
+release review. Maintainers can rerun either managed check from GitHub.
+
+Each PR has one durable coordinator. The active review is terminated when a
+new head arrives, only the newest pending head runs next, and stalled work is
+terminalized as `INCOMPLETE`. The model receives a credential-free, read-only
+checkout and one isolated CodeMode analysis tool. Private report and
+best-effort transcript copies are stored in the `PRIVATE_REPORTS` R2 bucket;
+Flue's private durable agent state also retains the structured model output.
+GitHub receives only a check result and a sanitized comment containing the
+verdict and reviewed SHA. `BLOCK` and `INCOMPLETE` both fail the check.
 
 ## Repository configuration
 
@@ -288,8 +306,8 @@ Three deliberate design choices:
 - **Permissions**: Contents (read/write — also required by GitHub's
   `resolveReviewThread` mutation), Issues (read/write), Pull requests
   (read/write), Checks (read/write), Actions (read/write — dispatching preview
-  release workflows).
-- **Events**: Pull request, Issues, Issue comment.
+  release workflows), Repository security advisories (read).
+- **Events**: Pull request, Check run, Issues, Issue comment.
 - **Webhook URL**: `https://<worker>/channels/github/webhook`.
 - **Secrets** (`wrangler secret put` / `.dev.vars`): `GITHUB_APP_ID`,
   `GITHUB_APP_PRIVATE_KEY` (PKCS#8 — convert with
@@ -303,11 +321,25 @@ short-lived contents-read token passed as a one-shot git header — never
 persisted to git config — after which the origin remote is removed, so the
 agent still runs credential-free.
 
+Before deploying release security, create the private bucket declared in
+`wrangler.jsonc`:
+
+```sh
+pnpm exec wrangler r2 bucket create astro-release-securitybot-reports
+```
+
+For cutover, deploy Factory while the previous reviewer remains available,
+open the smoke PR described above, and confirm the `Astro release security smoke
+test` check completes. Then disable the previous reviewer's webhook or workflow
+before opening or synchronizing a release PR, so only Factory publishes the
+managed check and comment.
+
 ## Development
 
 ```sh
 pnpm install
 pnpm dev          # local dev (vite + workerd); triage sandboxes need Docker running
+pnpm exec biome ci . # formatting and linting
 pnpm test         # vitest
 pnpm check:types  # tsc
 pnpm deploy       # vite build && wrangler deploy

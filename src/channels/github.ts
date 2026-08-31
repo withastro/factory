@@ -7,12 +7,23 @@ import {
 	requiredProcessEnv,
 } from '../github/client.ts';
 import {
+	RELEASE_SECURITY_TARGET,
+	type ReleaseSecurityWorkflowParams,
+	releaseSecurityCoordinatorKey,
+	releaseSecurityWorkflowParamsSchema,
+} from '../release-security/contracts.ts';
+import {
+	loadLiveReleaseSecurityTarget,
+	releaseSecurityMode,
+} from '../release-security/github.ts';
+import {
 	reviewCoordinatorKey,
 	reviewWorkflowParamsSchema,
 } from '../review/contracts.ts';
 import { matchesReviewTrigger } from '../review/setup.ts';
 import {
 	type Dispatch,
+	type ReleaseSecurityRerequestIntent,
 	type ReviewIntentParams,
 	routeDelivery,
 } from '../router.ts';
@@ -45,6 +56,14 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 					...admission,
 				});
 			}
+			case 'release-security':
+				return dispatchReleaseSecurity(c.env, dispatch.params, delivery);
+			case 'release-security-rerequest':
+				return dispatchReleaseSecurityRerequest(
+					c.env,
+					dispatch.params,
+					delivery,
+				);
 		}
 	},
 });
@@ -93,6 +112,83 @@ async function dispatchReview(
 	return Response.json({ accepted: true, capability: 'review', ...admission });
 }
 
+async function dispatchReleaseSecurity(
+	env: AppHonoEnv['Bindings'],
+	params: ReleaseSecurityWorkflowParams,
+	delivery: DeliveryContext,
+): Promise<Response> {
+	const parsed = v.parse(releaseSecurityWorkflowParamsSchema, params);
+	const coordinator = env.RELEASE_SECURITY_COORDINATOR.getByName(
+		releaseSecurityCoordinatorKey(parsed),
+	);
+	const admission = await coordinator.enqueue(parsed);
+	if (admission.disposition === 'rejected') {
+		logAdmitted(delivery, 'release-security', 'rejected', admission.reason);
+		return Response.json({ accepted: false, ...admission });
+	}
+	logAdmitted(delivery, 'release-security', admission.disposition);
+	return Response.json({
+		accepted: true,
+		capability: 'release-security',
+		...admission,
+	});
+}
+
+async function dispatchReleaseSecurityRerequest(
+	env: AppHonoEnv['Bindings'],
+	intent: ReleaseSecurityRerequestIntent,
+	delivery: DeliveryContext,
+): Promise<Response> {
+	if (intent.appId !== Number(env.GITHUB_APP_ID)) {
+		const reason = 'Check Run belongs to a different GitHub App.';
+		logAdmitted(delivery, 'release-security', 'rejected', reason);
+		return Response.json({ accepted: false, reason });
+	}
+	const client = await createInstallationClient(
+		credentialsFromWorkerEnv(env),
+		intent.installationId,
+	);
+	const live = await loadLiveReleaseSecurityTarget(
+		client,
+		intent.owner,
+		intent.repo,
+		intent.pullNumber,
+	);
+	if (
+		live.state !== 'open' ||
+		`${live.owner}/${live.repo}` !== RELEASE_SECURITY_TARGET ||
+		live.headRepository !== RELEASE_SECURITY_TARGET ||
+		live.baseRepository !== RELEASE_SECURITY_TARGET ||
+		live.headSha !== intent.headSha ||
+		releaseSecurityMode(live) !== intent.mode
+	) {
+		const reason = 'Pull request no longer matches the rerequested check.';
+		logAdmitted(delivery, 'release-security', 'rejected', reason);
+		return Response.json({ accepted: false, reason });
+	}
+	return dispatchReleaseSecurity(
+		env,
+		v.parse(releaseSecurityWorkflowParamsSchema, {
+			deliveryId: intent.deliveryId,
+			installationId: intent.installationId,
+			repositoryId: intent.repositoryId,
+			owner: live.owner,
+			repo: live.repo,
+			pullNumber: live.pullNumber,
+			pullUrl: live.pullUrl,
+			pullTitle: live.pullTitle,
+			pullBody: live.pullBody,
+			headRef: live.headRef,
+			headSha: live.headSha,
+			baseRef: live.baseRef,
+			baseSha: live.baseSha,
+			mode: intent.mode,
+			trigger: 'rerequest',
+		}),
+		delivery,
+	);
+}
+
 /** The fields of a delivery that identify it in a log line. */
 interface DeliveryContext {
 	name: string;
@@ -138,6 +234,18 @@ function routedTarget(dispatch: Dispatch): Record<string, unknown> {
 				issueNumber: dispatch.params.issueNumber,
 				issueAction: dispatch.params.issueAction,
 			};
+		case 'release-security':
+			return {
+				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
+				pullNumber: dispatch.params.pullNumber,
+				mode: dispatch.params.mode,
+			};
+		case 'release-security-rerequest':
+			return {
+				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
+				pullNumber: dispatch.params.pullNumber,
+				mode: dispatch.params.mode,
+			};
 	}
 }
 
@@ -149,7 +257,7 @@ function routedTarget(dispatch: Dispatch): Record<string, unknown> {
  */
 function logAdmitted(
 	delivery: DeliveryContext,
-	capability: 'review' | 'triage',
+	capability: 'review' | 'triage' | 'release-security',
 	disposition: string,
 	reason?: string,
 ): void {

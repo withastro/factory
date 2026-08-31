@@ -4,6 +4,8 @@
  */
 
 export { Sandbox } from '@cloudflare/sandbox';
+export { ReleaseSecurityCoordinator } from './release-security/coordinator.ts';
+export { ReleaseSecurityWorkflow } from './release-security/workflow.ts';
 export { ReviewCoordinator } from './review/coordinator.ts';
 export { ReviewWorkflow } from './review/workflow.ts';
 export { TriageCoordinator } from './triage/coordinator.ts';
