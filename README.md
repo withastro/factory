@@ -110,6 +110,7 @@ triage:
   # enabled: true
   # autoPrOnFix: false
   # skill: .agents/skills/triage       # overrides the bundled default skill
+  # prWriterSkill: .agents/skills/pr-writer # adds repository-specific PR guidance
   # model: anthropic/claude-opus-4-6   # reproduce/diagnose/fix pipeline
   # verificationModel: anthropic/claude-haiku-4-5 # fix + retriage classifiers
   # installCommand: pnpm install --no-frozen-lockfile # [] to install nothing
@@ -128,6 +129,11 @@ Skills resolve as **bundled default, repository override wins**: the factory
 ships generic review and triage skills (`skills/review/` and `skills/triage/`);
 a repository can replace either one by committing a skill under
 `.agents/skills/` and pointing the capability's `skill` setting at it.
+Triage pull requests use Factory's built-in `Changes`, `Testing`, and `Docs`
+format. A repository can add its own PR writing guidance with
+`triage.prWriterSkill`; that skill is applied in addition to the built-in
+format.
+
 (The bundled entry file is stored as `skill.md` — Flue's vite plugin treats
 imports literally named `SKILL.md` as packaged skills, and we need the raw
 text; it's seeded into the sandbox as `SKILL.md`.)

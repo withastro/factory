@@ -135,11 +135,15 @@ export async function setupTriageWorkspace(
 	const excludes = [...GIT_EXCLUDES, `/${setup.skill.directory}/`].join('\n');
 	await sandbox.writeFile(`${REPO_DIR}/.git/info/exclude`, `${excludes}\n`);
 
-	for (const [path, content] of Object.entries(setup.skill.files)) {
-		await sandbox.writeFile(
-			`${REPO_DIR}/${setup.skill.directory}/${path}`,
-			content,
-		);
+	await mountTriageSkill(sandbox, setup.skill);
+}
+
+export async function mountTriageSkill(
+	sandbox: TriageSandbox,
+	skill: SkillSnapshot,
+): Promise<void> {
+	for (const [path, content] of Object.entries(skill.files)) {
+		await sandbox.writeFile(`${REPO_DIR}/${skill.directory}/${path}`, content);
 	}
 }
 

@@ -1,4 +1,6 @@
 import * as v from 'valibot';
+import { skillSnapshotSchema } from '../github/skill.ts';
+import { prContentSchema } from './pipeline-contracts.ts';
 
 const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
 
@@ -76,6 +78,7 @@ export const fixVerifierInputSchema = v.object({
 	defaultBranch: nonEmptyString,
 	conversation: v.array(conversationEntrySchema),
 	latestComment: conversationEntrySchema,
+	prWriterSkill: v.optional(skillSnapshotSchema),
 	model: nonEmptyString,
 });
 
@@ -84,12 +87,7 @@ export type FixVerifierInput = v.InferOutput<typeof fixVerifierInputSchema>;
 export const fixVerdictSchema = v.object({
 	status: v.picklist(['confirmed', 'rejected', 'inconclusive']),
 	reasoning: v.pipe(v.string(), v.maxLength(2_000)),
-	pr: v.nullable(
-		v.object({
-			title: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200)),
-			body: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(20_000)),
-		}),
-	),
+	pr: v.nullable(prContentSchema),
 });
 
 export type FixVerdict = v.InferOutput<typeof fixVerdictSchema>;
