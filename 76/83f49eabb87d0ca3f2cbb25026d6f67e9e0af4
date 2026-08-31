@@ -1,0 +1,21 @@
+src/triage/sandbox.ts
+  s_98ff63d12330d4::t_3b5c09a5335738 138-146
+src/triage/workflow.ts
+  s_98ff63d12330d4::t_d6ef76d5f05c68 42,106,417-425,790-794,797-802,1315-1320,1342,1661-1684
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7683f49eabb87d0ca3f2cbb25026d6f67e9e0af4",
+  "prompts": {},
+  "sessions": {
+    "s_98ff63d12330d4": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa8226da1ffekIb5fIkAxpqXnF",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Matthew Phillips <matthewphillips@cloudflare.com>"
+    }
+  }
+}
