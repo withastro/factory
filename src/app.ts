@@ -5,10 +5,11 @@ import { githubChannel } from './channels/github.ts';
 import type { AppHonoEnv } from './env.ts';
 import { createFlueEventLogger, type FlueEventLogger } from './flue-logging.ts';
 
-instrument(createCloudflareTracing());
+instrument(createCloudflareTracing({ content: false }));
 
 const flueEventLoggers = new Map<string, FlueEventLogger>();
 observe((event, context) => {
+	if (context.id.startsWith('release-security:')) return;
 	const logger = flueEventLoggers.get(context.id) ?? createFlueEventLogger();
 	flueEventLoggers.set(context.id, logger);
 	logger.present(event);

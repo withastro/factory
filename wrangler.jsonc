@@ -15,6 +15,13 @@
 	"ai": {
 		"binding": "AI"
 	},
+	"worker_loaders": [{ "binding": "LOADER" }],
+	"r2_buckets": [
+		{
+			"binding": "PRIVATE_REPORTS",
+			"bucket_name": "astro-release-securitybot-reports"
+		}
+	],
 	"vars": {
 		"SANDBOX_TRANSPORT": "rpc"
 	},
@@ -22,7 +29,7 @@
 		{
 			"class_name": "Sandbox",
 			"image": "./Dockerfile",
-			"max_instances": 5,
+			"max_instances": 10,
 			"instance_type": "standard-2"
 		}
 	],
@@ -39,6 +46,14 @@
 			{
 				"name": "TRIAGE_SANDBOX",
 				"class_name": "Sandbox"
+			},
+			{
+				"name": "RELEASE_SECURITY_COORDINATOR",
+				"class_name": "ReleaseSecurityCoordinator"
+			},
+			{
+				"name": "RELEASE_SECURITY_SANDBOX",
+				"class_name": "Sandbox"
 			}
 		]
 	},
@@ -52,6 +67,11 @@
 			"name": "factory-triage",
 			"binding": "TRIAGE_WORKFLOW",
 			"class_name": "TriageWorkflow"
+		},
+		{
+			"name": "factory-release-security",
+			"binding": "RELEASE_SECURITY_WORKFLOW",
+			"class_name": "ReleaseSecurityWorkflow"
 		}
 	],
 	"observability": {
@@ -78,6 +98,13 @@
 		{
 			"tag": "v2",
 			"new_sqlite_classes": ["FlueTriagePipelineAgent", "Sandbox"]
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": [
+				"FlueReleaseSecurityReviewerAgent",
+				"ReleaseSecurityCoordinator"
+			]
 		}
 	]
 }
