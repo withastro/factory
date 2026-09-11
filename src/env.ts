@@ -1,4 +1,6 @@
 import type { Sandbox } from '@cloudflare/sandbox';
+import type { AdversaryWorkflowParams } from './adversary/contracts.ts';
+import type { AdversaryCoordinator } from './adversary/coordinator.ts';
 import type { ReleaseSecurityWorkflowParams } from './release-security/contracts.ts';
 import type { ReleaseSecurityCoordinator } from './release-security/coordinator.ts';
 import type { ReviewWorkflowParams } from './review/contracts.ts';
@@ -6,10 +8,15 @@ import type { ReviewCoordinator } from './review/coordinator.ts';
 import type { TriageWorkflowParams } from './triage/contracts.ts';
 import type { TriageCoordinator } from './triage/coordinator.ts';
 
-export interface WorkerEnv extends Omit<Env, 'TRIAGE_SANDBOX'> {
+export interface WorkerEnv
+	extends Omit<Env, 'TRIAGE_SANDBOX' | 'ADVERSARY_SANDBOX'> {
 	GITHUB_APP_ID: string;
 	GITHUB_APP_PRIVATE_KEY: string;
 	GITHUB_WEBHOOK_SECRET: string;
+	ADVERSARY_COORDINATOR: DurableObjectNamespace<AdversaryCoordinator>;
+	ADVERSARY_SANDBOX: DurableObjectNamespace<Sandbox>;
+	ADVERSARY_WORKFLOW: Workflow<AdversaryWorkflowParams>;
+	ADVERSARY_ARTIFACTS: R2Bucket;
 	REVIEW_COORDINATOR: DurableObjectNamespace<ReviewCoordinator>;
 	TRIAGE_COORDINATOR: DurableObjectNamespace<TriageCoordinator>;
 	TRIAGE_SANDBOX: DurableObjectNamespace<Sandbox>;

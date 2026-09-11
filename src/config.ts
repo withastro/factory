@@ -183,6 +183,23 @@ const commandListSchema = v.union([
 
 const factoryConfigSchema = v.object({
 	version: v.literal(1),
+	adversary: v.optional(
+		v.object({
+			trigger: v.object({ label: labelNameSchema }),
+			blueTeam: v.optional(
+				v.object({
+					skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+					model: v.optional(modelSchema),
+				}),
+			),
+			purpleTeam: v.optional(
+				v.object({
+					skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+					model: v.optional(modelSchema),
+				}),
+			),
+		}),
+	),
 	review: v.optional(
 		v.object({
 			trigger: v.object({ label: labelNameSchema }),
@@ -258,6 +275,18 @@ export interface ReviewConfig {
 	areas: string[];
 }
 
+export interface AdversaryConfig {
+	trigger: { label: string };
+	blueTeam: {
+		skill: string | undefined;
+		model: string;
+	};
+	purpleTeam: {
+		skill: string | undefined;
+		model: string;
+	};
+}
+
 /**
  * Opt-in preview releases. `workflow` is a maintainer-owned
  * `workflow_dispatch` workflow file in `.github/workflows`; `checkName` is the
@@ -313,6 +342,7 @@ export interface TriageConfig {
 }
 
 export interface FactoryConfig {
+	adversary: AdversaryConfig | undefined;
 	review: ReviewConfig | undefined;
 	triage: TriageConfig;
 }
@@ -320,6 +350,7 @@ export interface FactoryConfig {
 /** Configuration used when the repository has no factory.yml at all. */
 export function defaultFactoryConfig(): FactoryConfig {
 	return {
+		adversary: undefined,
 		review: undefined,
 		triage: {
 			enabled: true,
@@ -338,7 +369,32 @@ export function defaultFactoryConfig(): FactoryConfig {
 
 export function parseFactoryConfig(source: string): FactoryConfig {
 	const config = v.parse(factoryConfigSchema, parseYaml(source));
+	if (
+		config.adversary &&
+		config.review &&
+		config.adversary.trigger.label.toLowerCase() ===
+			config.review.trigger.label.toLowerCase()
+	) {
+		throw new Error('Adversary and review trigger labels must differ.');
+	}
 	return {
+		adversary: config.adversary
+			? {
+					trigger: config.adversary.trigger,
+					blueTeam: {
+						skill: config.adversary.blueTeam?.skill
+							? validateSkillDirectory(config.adversary.blueTeam.skill)
+							: undefined,
+						model: config.adversary.blueTeam?.model ?? CODE_MODEL,
+					},
+					purpleTeam: {
+						skill: config.adversary.purpleTeam?.skill
+							? validateSkillDirectory(config.adversary.purpleTeam.skill)
+							: undefined,
+						model: config.adversary.purpleTeam?.model ?? CODE_MODEL,
+					},
+				}
+			: undefined,
 		review: config.review
 			? {
 					trigger: config.review.trigger,

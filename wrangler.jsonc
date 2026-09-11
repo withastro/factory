@@ -20,6 +20,10 @@
 		{
 			"binding": "PRIVATE_REPORTS",
 			"bucket_name": "astro-release-securitybot-reports"
+		},
+		{
+			"binding": "ADVERSARY_ARTIFACTS",
+			"bucket_name": "factory-adversary-artifacts"
 		}
 	],
 	"vars": {
@@ -38,6 +42,14 @@
 			{
 				"name": "REVIEW_COORDINATOR",
 				"class_name": "ReviewCoordinator"
+			},
+			{
+				"name": "ADVERSARY_COORDINATOR",
+				"class_name": "AdversaryCoordinator"
+			},
+			{
+				"name": "ADVERSARY_SANDBOX",
+				"class_name": "Sandbox"
 			},
 			{
 				"name": "TRIAGE_COORDINATOR",
@@ -62,6 +74,11 @@
 			"name": "factory-review",
 			"binding": "REVIEW_WORKFLOW",
 			"class_name": "ReviewWorkflow"
+		},
+		{
+			"name": "factory-adversary",
+			"binding": "ADVERSARY_WORKFLOW",
+			"class_name": "AdversaryWorkflow"
 		},
 		{
 			"name": "factory-triage",
@@ -104,6 +121,14 @@
 			"new_sqlite_classes": [
 				"FlueReleaseSecurityReviewerAgent",
 				"ReleaseSecurityCoordinator"
+			]
+		},
+		{
+			"tag": "v4",
+			"new_sqlite_classes": [
+				"FlueBlueTeamAgent",
+				"FluePurpleTeamAgent",
+				"AdversaryCoordinator"
 			]
 		}
 	]

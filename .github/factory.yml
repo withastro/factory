@@ -11,6 +11,14 @@
 # one on the repository the factory tests itself against.
 version: 1
 
+adversary:
+  trigger:
+    label: ai-adversary
+  blueTeam:
+    model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+  purpleTeam:
+    model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+
 review:
   trigger:
     label: ai-review

@@ -26,6 +26,7 @@ review:
   skill: .agents/skills/astro-review
 `),
 		).toEqual({
+			adversary: undefined,
 			review: {
 				trigger: { label: 'ai-review' },
 				skill: '.agents/skills/astro-review',
@@ -64,6 +65,64 @@ review:
 				areas: [...DEFAULT_AREAS],
 			},
 		});
+	});
+
+	it('parses an opt-in adversary section with team models', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+adversary:
+  trigger:
+    label: ai-adversary
+  blueTeam:
+    skill: .agents/skills/adversary-blue
+    model: anthropic/claude-opus-4-6
+  purpleTeam:
+    skill: .agents/skills/adversary-purple
+    model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+`),
+		).toMatchObject({
+			adversary: {
+				trigger: { label: 'ai-adversary' },
+				blueTeam: {
+					skill: '.agents/skills/adversary-blue',
+					model: 'anthropic/claude-opus-4-6',
+				},
+				purpleTeam: {
+					skill: '.agents/skills/adversary-purple',
+					model: 'cloudflare/@cf/moonshotai/kimi-k2.7-code',
+				},
+			},
+		});
+	});
+
+	it('keeps adversary disabled unless its section exists', () => {
+		expect(parseFactoryConfig('version: 1').adversary).toBeUndefined();
+	});
+
+	it('defaults both adversary team models to the coding model', () => {
+		expect(
+			parseFactoryConfig(
+				'version: 1\nadversary:\n  trigger:\n    label: ai-adversary',
+			).adversary,
+		).toMatchObject({
+			blueTeam: { model: CODE_MODEL },
+			purpleTeam: { model: CODE_MODEL },
+		});
+	});
+
+	it('rejects colliding review and adversary labels case-insensitively', () => {
+		expect(() =>
+			parseFactoryConfig(`
+version: 1
+adversary:
+  trigger:
+    label: AI-REVIEW
+review:
+  trigger:
+    label: ai-review
+`),
+		).toThrow('must differ');
 	});
 
 	it('accepts project-defined severity and area vocabularies', () => {

@@ -11,7 +11,8 @@
  *   resolves it from the environment.
  *
  * The constants below are the defaults. A repository can override any of them
- * in `.github/factory.yml` (`review.model`, `triage.model`,
+ * in `.github/factory.yml` (`adversary.blueTeam.model`,
+ * `adversary.purpleTeam.model`, `review.model`, `triage.model`, and
  * `triage.verificationModel`).
  */
 

@@ -17,6 +17,7 @@ Built by combining [withastro/astro-review](https://github.com/withastro/astro-r
 GitHub webhooks ─→ Hono ingress (signature verification)
                     └→ router.ts (pure rule table: event → capability dispatch)
                         ├→ ReviewCoordinator DO (one per PR)  ─→ ReviewWorkflow ─→ PullRequestReviewer agent
+                        ├→ AdversaryCoordinator DO (one per PR) ─→ AdversaryWorkflow ─→ BlueTeam / PurpleTeam agents
                         ├→ TriageCoordinator DO (one per issue) ─→ TriageWorkflow ─→ FixVerifier / RetriageJudge agents
                         └→ ReleaseSecurityCoordinator DO (one per PR) ─→ ReleaseSecurityWorkflow ─→ ReleaseSecurityReviewer agent
 ```
@@ -53,6 +54,48 @@ rechecks unresolved inline threads from its latest prior review and resolves
 only those it determines have been addressed. If GitHub does not allow the App
 installation identity to resolve a thread, Factory leaves it unresolved without
 failing the new review.
+
+### Adversary (`src/adversary/`)
+
+Adding the configured adversary label starts an independent alternative-design
+exercise for a public pull request. The submitted PR is red, a blue agent starts
+from the exact base commit without access to red's implementation, and a purple
+agent evaluates both exact trees in a fresh container. Purple qualifies blue
+only when it solves the same problem, is materially different, is verified,
+preserves relevant safeguards, and remains appropriately scoped.
+
+Blue and purple receive credential-free Cloudflare Sandbox containers and
+discover the repository's own install, build, and test tooling. No commands are
+configured in `factory.yml`. Blue's binary patch is streamed through a private
+R2 artifact between isolated containers. Only after purple qualifies it does a
+third clean container receive a short-lived contents token. When purple selects
+blue, that container pushes the alternative branch, Factory opens a draft pull
+request using the caller repository's pull request template, and the original PR
+receives a comment linking to it. Every other purple verdict produces only a
+concise decision comment. The maintainer then chooses which proposal to pursue.
+The first version supports public repositories only.
+
+```mermaid
+flowchart TB
+    L[Adversary label] --> W[Cloudflare Workflow]
+    W --> B[Blue container<br/>Implement from base]
+    B --> D[git diff creates blue.patch]
+    D --> A[(R2 stores blue.patch)]
+    H[GitHub] -->|Clone PR into /red| P[Fresh Purple container]
+    H -->|Clone base into /blue| P
+    A -->|Workflow downloads and git applies patch to /blue| P
+    P --> T[Test and compare /red and /blue]
+    T --> G{Blue qualifies?}
+    G -- No --> R[Check and comparison]
+    G -- Yes --> S{Purple selects Blue?}
+    S -- No --> R
+    S -- Yes --> U[Clean publisher container]
+    A -. Same verified patch .-> U
+    U --> C[Alternative branch]
+    C --> O[Factory opens draft PR]
+    O --> R
+    R --> M[Maintainer chooses Red or Blue]
+```
 
 ### Triage (`src/triage/`)
 
@@ -116,6 +159,16 @@ always read from maintainer-controlled content.
 ```yaml
 version: 1
 
+adversary:
+  trigger:
+    label: ai-adversary
+  blueTeam:
+    # skill: .agents/skills/adversary-blue
+    # model: anthropic/claude-opus-4-6
+  purpleTeam:
+    # skill: .agents/skills/adversary-purple
+    # model: anthropic/claude-opus-4-6
+
 review:
   trigger:
     label: ai-review
@@ -144,7 +197,11 @@ triage:
 ```
 
 Skills resolve as **bundled default, repository override wins**: the factory
-ships generic review and triage skills (`skills/review/` and `skills/triage/`);
+ships generic adversary, review, and triage skills; repository overrides live
+under `.agents/skills/`. Blue and purple have separate adversary overrides, so
+implementation guidance does not leak into judging guidance. A purple override
+may add domain-specific criteria but cannot weaken the built-in correctness and safety gate. The
+factory's review and triage defaults live in `skills/review/` and `skills/triage/`;
 a repository can replace either one by committing a skill under
 `.agents/skills/` and pointing the capability's `skill` setting at it.
 Triage pull requests use Factory's built-in `Changes`, `Testing`, and `Docs`
@@ -240,6 +297,8 @@ unconfigured repository keeps working with no API key:
 
 | Setting | Used by | Default |
 | --- | --- | --- |
+| `adversary.blueTeam.model` | independent alternative implementation | `CODE_MODEL` |
+| `adversary.purpleTeam.model` | qualification and red/blue comparison | `CODE_MODEL` |
 | `review.model` | the pull request reviewer | `CODE_MODEL` |
 | `triage.model` | the reproduce/diagnose/fix pipeline | `CODE_MODEL` |
 | `triage.verificationModel` | fix verification and retriage decisions | `VERIFICATION_MODEL` |
@@ -326,6 +385,12 @@ Before deploying release security, create the private bucket declared in
 
 ```sh
 pnpm exec wrangler r2 bucket create astro-release-securitybot-reports
+```
+
+Before enabling adversary runs, create its transient artifact bucket:
+
+```sh
+pnpm exec wrangler r2 bucket create factory-adversary-artifacts
 ```
 
 For cutover, deploy Factory while the previous reviewer remains available,
