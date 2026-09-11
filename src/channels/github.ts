@@ -1,5 +1,10 @@
 import { createGitHubChannel } from '@flue/github';
 import * as v from 'valibot';
+import {
+	adversaryCoordinatorKey,
+	adversaryWorkflowParamsSchema,
+} from '../adversary/contracts.ts';
+import { matchesAdversaryTrigger } from '../adversary/setup.ts';
 import type { AppHonoEnv } from '../env.ts';
 import {
 	createInstallationClient,
@@ -99,7 +104,23 @@ async function dispatchReview(
 		headSha: intent.headSha,
 	});
 	if (!(await matchesReviewTrigger(client, params))) {
-		const reason = `Label "${params.label}" is not the configured review trigger.`;
+		const adversaryParams = v.parse(adversaryWorkflowParamsSchema, {
+			...intent,
+			configurationSha: baseBranch.data.commit.sha,
+		});
+		if (await matchesAdversaryTrigger(client, adversaryParams)) {
+			const coordinator = env.ADVERSARY_COORDINATOR.getByName(
+				adversaryCoordinatorKey(adversaryParams),
+			);
+			const admission = await coordinator.enqueue(adversaryParams);
+			logAdmitted(delivery, 'adversary', admission.disposition);
+			return Response.json({
+				accepted: true,
+				capability: 'adversary',
+				...admission,
+			});
+		}
+		const reason = `Label "${params.label}" is not a configured pull request trigger.`;
 		logAdmitted(delivery, 'review', 'rejected', reason);
 		return Response.json({ accepted: false, reason });
 	}
@@ -257,7 +278,7 @@ function routedTarget(dispatch: Dispatch): Record<string, unknown> {
  */
 function logAdmitted(
 	delivery: DeliveryContext,
-	capability: 'review' | 'triage' | 'release-security',
+	capability: 'review' | 'triage' | 'release-security' | 'adversary',
 	disposition: string,
 	reason?: string,
 ): void {
