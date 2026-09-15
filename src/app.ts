@@ -10,7 +10,14 @@ instrument(createCloudflareTracing({ content: false }));
 const flueEventLoggers = new Map<string, FlueEventLogger>();
 observe((event, context) => {
 	if (context.id.startsWith('release-security:')) return;
-	const logger = flueEventLoggers.get(context.id) ?? createFlueEventLogger();
+	const logger =
+		flueEventLoggers.get(context.id) ??
+		createFlueEventLogger((message) =>
+			console.info(message, {
+				agentName: context.agentName,
+				contextId: context.id,
+			}),
+		);
 	flueEventLoggers.set(context.id, logger);
 	logger.present(event);
 	if (event.type === 'submission_settled') flueEventLoggers.delete(context.id);
