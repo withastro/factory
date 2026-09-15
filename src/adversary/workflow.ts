@@ -29,6 +29,7 @@ import {
 	type AdversaryWorkflowOutcome,
 	type AdversaryWorkflowParams,
 	adversaryCoordinatorKey,
+	adversarySandboxId,
 	adversaryWorkflowParamsSchema,
 	type BlueTeamInput,
 	type BlueTeamResult,
@@ -419,13 +420,6 @@ export class AdversaryWorkflow extends WorkflowEntrypoint<
 			await destroyInStep(step, 'publisher', sandbox);
 		}
 	}
-}
-
-function adversarySandboxId(
-	team: 'blue' | 'purple' | 'publisher',
-	params: AdversaryWorkflowParams,
-): string {
-	return `adversary-${team}-${params.repositoryId}-${params.pullNumber}-${params.deliveryId}`;
 }
 
 async function destroyInStep(
