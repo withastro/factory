@@ -1,5 +1,5 @@
 import { getSandbox, type Sandbox } from '@cloudflare/sandbox';
-import type { SandboxFactory } from '@flue/runtime';
+import type { Sandbox as FlueSandbox, SandboxFactory } from '@flue/runtime';
 import { cloudflareSandbox } from '@flue/runtime/cloudflare';
 import { adversaryBranchName } from './contracts.ts';
 
@@ -11,6 +11,7 @@ export const MAX_PATCH_BYTES = 20 * 1_024 * 1_024;
 
 const COMMAND_TIMEOUT_SECONDS = 1_800;
 const OUTPUT_LIMIT = 4_000;
+const AGENT_USER = 'sandbox-agent';
 
 export type AdversarySandbox = Sandbox<unknown>;
 
@@ -36,6 +37,13 @@ interface PullRequestRef extends RepositoryRef {
 	headSha: string;
 }
 
+interface AdversaryAgentSandboxOptions {
+	cwd: string;
+	mountedSkillName: string;
+	readablePaths?: string[];
+	writablePaths?: string[];
+}
+
 export interface CapturedPatch {
 	path: string;
 	size: number;
@@ -55,26 +63,108 @@ export function getAdversarySandbox(
 /** Flue's normal Cloudflare tools, with a non-optional ceiling on every process. */
 export function adversaryAgentSandbox(
 	sandbox: AdversarySandbox,
-	cwd: string,
-	mountedSkillName: string,
+	options: AdversaryAgentSandboxOptions,
 ): SandboxFactory {
+	const { cwd, mountedSkillName } = options;
 	const base = cloudflareSandbox(sandbox, { cwd });
 	const workspaceSkillsDir = `${cwd}/.agents/skills`;
+	const readablePaths = options.readablePaths ?? [cwd];
+	const writablePaths = options.writablePaths ?? [cwd];
 	return {
 		...base,
 		async createSandbox(options) {
 			const environment = await base.createSandbox(options);
+			const readablePath = (path: string, mustExist = true) =>
+				canonicalAllowedPath(
+					environment,
+					path,
+					readablePaths,
+					'read',
+					mustExist,
+				);
+			const writablePath = (path: string) =>
+				canonicalAllowedPath(environment, path, writablePaths, 'write', false);
 			return {
 				...environment,
+				async readFile(path) {
+					const content = await readFileAsAgent(
+						environment,
+						await readablePath(path),
+					);
+					return Buffer.from(content).toString('utf8');
+				},
+				async readFileBuffer(path) {
+					return readFileAsAgent(environment, await readablePath(path));
+				},
+				async writeFile(path, content) {
+					const resolved = await writablePath(path);
+					await writeFileAsAgent(environment, resolved, content);
+				},
+				async stat(path) {
+					const resolved = await readablePath(path);
+					const result = await execAgentCommandOrThrow(
+						environment,
+						`stat -L -c '%s/%Y/%F' -- ${shellQuote(resolved)} && stat -c '%F' -- ${shellQuote(resolved)}`,
+						10_000,
+					);
+					const [target = '', self = ''] = result.stdout.trim().split('\n');
+					const [size = '0', mtime = '0', type = ''] = target.split('/');
+					return {
+						isFile: type.includes('regular'),
+						isDirectory: type === 'directory',
+						isSymbolicLink: self.trim() === 'symbolic link',
+						size: Number.parseInt(size, 10),
+						mtime: new Date(Number.parseInt(mtime, 10) * 1_000),
+					};
+				},
 				async readdir(path) {
-					const entries = await environment.readdir(path);
+					const resolved = await readablePath(path);
+					const result = await execAgentCommandOrThrow(
+						environment,
+						`find ${shellQuote(resolved)} -mindepth 1 -maxdepth 1 -printf '%f\\0'`,
+						10_000,
+					);
+					const entries = result.stdout.split('\0').filter(Boolean);
 					// The pinned snapshot is mounted with useSkill; hide its checkout
 					// copy from Flue's workspace discovery to avoid a name collision.
-					return path === workspaceSkillsDir
+					return resolved === workspaceSkillsDir
 						? entries.filter((entry) => entry !== mountedSkillName)
 						: entries;
 				},
-				exec(command, execOptions) {
+				async exists(path) {
+					try {
+						const resolved = await readablePath(path, false);
+						const result = await execAgentCommand(
+							environment,
+							`test -e ${shellQuote(resolved)}`,
+							10_000,
+						);
+						return result.exitCode === 0;
+					} catch {
+						return false;
+					}
+				},
+				async mkdir(path, mkdirOptions) {
+					const resolved = await writablePath(path);
+					await execAgentCommandOrThrow(
+						environment,
+						`mkdir ${mkdirOptions?.recursive ? '-p ' : ''}-- ${shellQuote(resolved)}`,
+						10_000,
+					);
+				},
+				async rm(path, rmOptions) {
+					const resolved = environment.resolvePath(path);
+					const parent = resolved.slice(0, resolved.lastIndexOf('/')) || '/';
+					const canonicalParent = await writablePath(parent);
+					const target = `${canonicalParent}/${resolved.slice(resolved.lastIndexOf('/') + 1)}`;
+					await execAgentCommandOrThrow(
+						environment,
+						`rm ${rmOptions?.force ? '-f ' : ''}${rmOptions?.recursive ? '-r ' : ''}-- ${shellQuote(target)}`,
+						10_000,
+					);
+				},
+				async exec(command, execOptions) {
+					if (execOptions?.cwd) await readablePath(execOptions.cwd);
 					const requested =
 						execOptions?.timeoutMs ?? COMMAND_TIMEOUT_SECONDS * 1_000;
 					const timeoutMs = Math.min(
@@ -82,14 +172,113 @@ export function adversaryAgentSandbox(
 						COMMAND_TIMEOUT_SECONDS * 1_000,
 					);
 					const seconds = Math.ceil(timeoutMs / 1_000);
-					return environment.exec(
-						`GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 timeout -k 5 ${seconds} sh -c ${shellQuote(command)}`,
-						{ ...execOptions, timeoutMs },
+					return execAgentCommand(
+						environment,
+						command,
+						timeoutMs,
+						seconds,
+						execOptions,
 					);
 				},
 			};
 		},
 	};
+}
+
+async function canonicalAllowedPath(
+	environment: FlueSandbox,
+	path: string,
+	allowedPaths: string[],
+	operation: 'read' | 'write',
+	mustExist: boolean,
+): Promise<string> {
+	const resolved = environment.resolvePath(path);
+	const canonical = await environment.exec(
+		`realpath ${mustExist ? '-e' : '-m'} -- ${shellQuote(resolved)}`,
+		{ timeoutMs: 10_000 },
+	);
+	if (canonical.exitCode !== 0) {
+		throw new Error(`Sandbox ${operation} path could not be resolved.`);
+	}
+	const canonicalPath = canonical.stdout.trim();
+	if (
+		!allowedPaths.some(
+			(allowed) =>
+				canonicalPath === allowed || canonicalPath.startsWith(`${allowed}/`),
+		)
+	) {
+		throw new Error(`Sandbox ${operation} denied outside the agent workspace.`);
+	}
+	return canonicalPath;
+}
+
+async function execAgentCommand(
+	environment: FlueSandbox,
+	command: string,
+	timeoutMs: number,
+	seconds = Math.ceil(timeoutMs / 1_000),
+	execOptions?: Parameters<FlueSandbox['exec']>[1],
+): ReturnType<FlueSandbox['exec']> {
+	return environment.exec(wrapAgentCommand(command, seconds), {
+		...execOptions,
+		timeoutMs,
+	});
+}
+
+function wrapAgentCommand(command: string, seconds: number): string {
+	return `runuser --user ${AGENT_USER} -- env HOME=/home/${AGENT_USER} GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 timeout -k 5 ${seconds} sh -c ${shellQuote(command)}`;
+}
+
+async function execAgentCommandOrThrow(
+	environment: FlueSandbox,
+	command: string,
+	timeoutMs: number,
+): Promise<Awaited<ReturnType<FlueSandbox['exec']>>> {
+	const result = await execAgentCommand(environment, command, timeoutMs);
+	if (result.exitCode !== 0) {
+		throw new Error(
+			`Adversary agent command failed (exit ${result.exitCode}): ${tail(result.stderr || result.stdout)}`,
+		);
+	}
+	return result;
+}
+
+async function readFileAsAgent(
+	environment: FlueSandbox,
+	path: string,
+): Promise<Uint8Array> {
+	const result = await execAgentCommandOrThrow(
+		environment,
+		`base64 -w 0 -- ${shellQuote(path)}`,
+		30_000,
+	);
+	return Buffer.from(result.stdout, 'base64');
+}
+
+async function writeFileAsAgent(
+	environment: FlueSandbox,
+	path: string,
+	content: string | Uint8Array,
+): Promise<void> {
+	const stagingPath = `/tmp/factory-agent-write-${crypto.randomUUID()}`;
+	const parent = path.slice(0, path.lastIndexOf('/')) || '/';
+	await environment.writeFile(stagingPath, content);
+	try {
+		const protection = await environment.exec(
+			`chmod 0644 -- ${shellQuote(stagingPath)}`,
+			{ timeoutMs: 10_000 },
+		);
+		if (protection.exitCode !== 0) {
+			throw new Error('Unable to protect the staged agent write.');
+		}
+		await execAgentCommandOrThrow(
+			environment,
+			`mkdir -p -- ${shellQuote(parent)} && cp -- ${shellQuote(stagingPath)} ${shellQuote(path)}`,
+			30_000,
+		);
+	} finally {
+		await environment.rm(stagingPath, { force: true });
+	}
 }
 
 /** Give blue only an anonymous detached checkout of the immutable base commit. */
@@ -99,25 +288,37 @@ export async function setupBlueWorkspace(
 ): Promise<void> {
 	await prepareDirectories(sandbox, [BLUE_DIR, ADVERSARY_ARTIFACT_DIR]);
 	await cloneExactCommit(sandbox, input, BLUE_DIR);
+	await grantAgentWorkspace(sandbox, [BLUE_DIR]);
 }
 
 /** Stage tracked and untracked edits and encode them as a size-bounded binary patch. */
 export async function captureBluePatch(
-	sandbox: AdversarySandbox,
+	sandbox: Pick<AdversarySandbox, 'exec'>,
 	baseSha: string,
 ): Promise<CapturedPatch> {
 	assertSha(baseSha);
-	await verifyHead(sandbox, BLUE_DIR, baseSha);
-	await execOrThrow(
+	const stagingPath = `/tmp/factory-blue-patch-${crypto.randomUUID()}`;
+	await execAgentSandboxOrThrow(
 		sandbox,
 		'capture blue changes',
 		[
-			`mkdir -p ${shellQuote(ADVERSARY_ARTIFACT_DIR)}`,
+			`test "$(git -C ${shellQuote(BLUE_DIR)} rev-parse HEAD)" = ${shellQuote(baseSha.toLowerCase())}`,
+			`rm -f -- ${shellQuote(stagingPath)}`,
 			`git -C ${shellQuote(BLUE_DIR)} add -A`,
 			// POSIX ulimit -f is in 512-byte blocks. Leave one block of headroom.
-			`(ulimit -f ${Math.floor(MAX_PATCH_BYTES / 512)}; git -C ${shellQuote(BLUE_DIR)} diff --cached --binary --full-index --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ ${shellQuote(baseSha)} -- > ${shellQuote(BLUE_PATCH_PATH)})`,
+			`(ulimit -f ${Math.floor(MAX_PATCH_BYTES / 512)}; git -C ${shellQuote(BLUE_DIR)} diff --cached --binary --full-index --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ ${shellQuote(baseSha)} -- > ${shellQuote(stagingPath)})`,
 		].join(' && '),
 		300,
+	);
+	await execOrThrow(
+		sandbox,
+		'protect blue patch',
+		[
+			`mkdir -p ${shellQuote(ADVERSARY_ARTIFACT_DIR)}`,
+			`install -o root -g root -m 0444 -- ${shellQuote(stagingPath)} ${shellQuote(BLUE_PATCH_PATH)}`,
+			`rm -f -- ${shellQuote(stagingPath)}`,
+		].join(' && '),
+		30,
 	);
 	return inspectPatch(sandbox, BLUE_PATCH_PATH);
 }
@@ -142,6 +343,7 @@ export async function setupPurpleWorkspace(
 		`chmod 0444 ${shellQuote(patchPath)}`,
 		30,
 	);
+	await grantAgentWorkspace(sandbox, [BLUE_DIR, RED_DIR]);
 }
 
 /** Prepare a credential-free publisher tree and deterministic commit. */
@@ -208,7 +410,7 @@ export async function pushPublisherBranch(
 }
 
 export async function inspectPatch(
-	sandbox: AdversarySandbox,
+	sandbox: Pick<AdversarySandbox, 'exec'>,
 	path: string,
 ): Promise<CapturedPatch> {
 	const result = await execOrThrow(
@@ -251,6 +453,18 @@ async function prepareDirectories(
 		'prepare workspace',
 		`rm -rf ${directories.map(shellQuote).join(' ')} && mkdir -p ${shellQuote(ADVERSARY_ARTIFACT_DIR)}`,
 		30,
+	);
+}
+
+async function grantAgentWorkspace(
+	sandbox: AdversarySandbox,
+	directories: string[],
+): Promise<void> {
+	await execOrThrow(
+		sandbox,
+		'grant agent workspace',
+		`chown -R ${AGENT_USER}:${AGENT_USER} -- ${directories.map(shellQuote).join(' ')}`,
+		300,
 	);
 }
 
@@ -358,8 +572,40 @@ export async function execCommand(
 	};
 }
 
+async function execAgentSandboxOrThrow(
+	sandbox: Pick<AdversarySandbox, 'exec'>,
+	stage: string,
+	command: string,
+	timeoutSeconds: number,
+): Promise<CommandResult> {
+	const seconds = Math.min(
+		Math.max(timeoutSeconds, 1),
+		COMMAND_TIMEOUT_SECONDS,
+	);
+	const result = await sandbox
+		.exec(wrapAgentCommand(command, seconds), {
+			timeout: (seconds + 10) * 1_000,
+		})
+		.catch((error: unknown) => {
+			const detail = error instanceof Error ? error.message : String(error);
+			throw new Error(`Adversary sandbox RPC failed: ${redactToken(detail)}`);
+		});
+	const normalized = {
+		exitCode: result.exitCode,
+		stdout: result.stdout ?? '',
+		stderr: result.stderr ?? '',
+		success: result.exitCode === 0,
+	};
+	if (!normalized.success) {
+		throw new Error(
+			`Adversary sandbox ${stage} failed (exit ${normalized.exitCode}): ${redactToken(tail(normalized.stderr || normalized.stdout))}`,
+		);
+	}
+	return normalized;
+}
+
 async function execOrThrow(
-	sandbox: AdversarySandbox,
+	sandbox: Pick<AdversarySandbox, 'exec'>,
 	stage: string,
 	command: string,
 	timeoutSeconds: number,
