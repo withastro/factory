@@ -67,12 +67,43 @@ describe('createFlueEventLogger', () => {
 			text: 'first line\npartial',
 		} as FlueEvent);
 		logger.present({ type: 'text_delta', text: ' line\n' } as FlueEvent);
-		logger.present({ type: 'turn' } as FlueEvent);
+		logger.present({ type: 'idle' } as FlueEvent);
 
 		expect(lines).toEqual([
 			'[flue] assistant',
 			'  first line',
 			'  partial line',
+		]);
+	});
+
+	it('logs agent and submission lifecycle without payload content', () => {
+		const lines: string[] = [];
+		const logger = createFlueEventLogger((line) => lines.push(line));
+
+		logger.present({ type: 'agent_start' } as FlueEvent);
+		logger.present({
+			type: 'submission_queued',
+			submissionId: 'sub-1',
+			kind: 'dispatch',
+		} as FlueEvent);
+		logger.present({
+			type: 'submission_running',
+			submissionId: 'sub-1',
+			kind: 'dispatch',
+			attemptCount: 1,
+			maxAttempts: 3,
+		} as FlueEvent);
+		logger.present({
+			type: 'submission_settled',
+			submissionId: 'sub-1',
+			outcome: 'completed',
+		} as FlueEvent);
+
+		expect(lines).toEqual([
+			'[flue] agent:start',
+			'[flue] submission:queued id=sub-1 kind=dispatch',
+			'[flue] submission:running id=sub-1 attempt=1/3',
+			'[flue] submission:settled id=sub-1 outcome=completed',
 		]);
 	});
 

@@ -229,6 +229,42 @@ describe('webhook dispatch router', () => {
 		});
 	});
 
+	it('ignores comments from user-account bots like astrobot-houston', () => {
+		// GitHub reports classic bots that run on user accounts as `type:
+		// User`, so the type check alone misses them (issue #17991: Houston's
+		// comment triggered a retriage that dropped "needs reproduction").
+		const dispatch = routeDelivery(
+			'issue_comment',
+			{
+				action: 'created',
+				installation,
+				repository,
+				issue: { number: 42 },
+				comment: { user: { login: 'astrobot-houston', type: 'User' } },
+			},
+			'delivery-5b',
+		);
+		expect(dispatch).toEqual({
+			kind: 'none',
+			reason: 'Comment from bot (astrobot-houston).',
+		});
+	});
+
+	it('ignores [bot]-suffixed accounts even when the type field is missing', () => {
+		const dispatch = routeDelivery(
+			'issue_comment',
+			{
+				action: 'created',
+				installation,
+				repository,
+				issue: { number: 42 },
+				comment: { user: { login: 'some-app[bot]' } },
+			},
+			'delivery-5c',
+		);
+		expect(dispatch.kind).toBe('none');
+	});
+
 	it('routes private repositories to triage with the private flag set', () => {
 		const dispatch = routeDelivery(
 			'issues',
