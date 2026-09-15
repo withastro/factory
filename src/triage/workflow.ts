@@ -11,6 +11,7 @@ import {
 	type TriageConfig,
 } from '../config.ts';
 import type { WorkerEnv } from '../env.ts';
+import { isBotAuthor } from '../github/bots.ts';
 import {
 	createInstallationClient,
 	createScopedInstallationToken,
@@ -1538,17 +1539,23 @@ async function loadAndRoute(
 		params.repo,
 		params.issueNumber,
 	);
-	const action = route(
-		{
-			action: params.issueAction,
-			// Read from the issue rather than inferred from the action: the
-			// delivery only says what happened, and the issue may have moved on
-			// while the delivery waited its turn in the per-issue queue.
-			issueState: normalizeIssueState(details.state),
-			issueLabels: details.labels,
-		},
-		config.triage.labels,
-	);
+	const action =
+		params.issueAction === 'comment' && isBotAuthor(params.commentAuthor)
+			? {
+					type: 'skip' as const,
+					reason: `Comment from bot (${params.commentAuthor}).`,
+				}
+			: route(
+					{
+						action: params.issueAction,
+						// Read from the issue rather than inferred from the action: the
+						// delivery only says what happened, and the issue may have moved on
+						// while the delivery waited its turn in the per-issue queue.
+						issueState: normalizeIssueState(details.state),
+						issueLabels: details.labels,
+					},
+					config.triage.labels,
+				);
 
 	const conversation = details.comments
 		.slice(-MAX_CONVERSATION_ENTRIES)
