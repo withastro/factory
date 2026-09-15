@@ -1,6 +1,6 @@
 # Container image for triage pipeline sandboxes. Pin the base image to the
 # exact @cloudflare/sandbox SDK version in package.json.
-FROM docker.io/cloudflare/sandbox:0.12.3
+FROM docker.io/cloudflare/sandbox:0.12.5
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
@@ -28,5 +28,9 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 	| sh -s -- -y --no-modify-path --profile minimal --default-toolchain none \
 	&& chmod -R a+w "$RUSTUP_HOME" "$CARGO_HOME"
+
+# Adversary agent commands run as this user while the sandbox control plane
+# remains root for the other workflows that share this image.
+RUN useradd --create-home --shell /bin/bash sandbox-agent
 
 EXPOSE 8080

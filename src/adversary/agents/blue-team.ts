@@ -32,9 +32,13 @@ export function BlueTeam() {
 		env as unknown as AdversarySandboxEnv,
 		input.sandboxId,
 	);
-	useSandbox(adversaryAgentSandbox(sandbox, BLUE_DIR, input.skill.name), {
-		cwd: BLUE_DIR,
-	});
+	useSandbox(
+		adversaryAgentSandbox(sandbox, {
+			cwd: BLUE_DIR,
+			mountedSkillName: input.skill.name,
+		}),
+		{ cwd: BLUE_DIR },
+	);
 
 	const writeResult = useDataWriter('result', { schema: blueTeamResultSchema });
 	useTool({
