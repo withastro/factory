@@ -56,14 +56,24 @@ export function getAdversarySandbox(
 export function adversaryAgentSandbox(
 	sandbox: AdversarySandbox,
 	cwd: string,
+	mountedSkillName: string,
 ): SandboxFactory {
 	const base = cloudflareSandbox(sandbox, { cwd });
+	const workspaceSkillsDir = `${cwd}/.agents/skills`;
 	return {
 		...base,
 		async createSandbox(options) {
 			const environment = await base.createSandbox(options);
 			return {
 				...environment,
+				async readdir(path) {
+					const entries = await environment.readdir(path);
+					// The pinned snapshot is mounted with useSkill; hide its checkout
+					// copy from Flue's workspace discovery to avoid a name collision.
+					return path === workspaceSkillsDir
+						? entries.filter((entry) => entry !== mountedSkillName)
+						: entries;
+				},
 				exec(command, execOptions) {
 					const requested =
 						execOptions?.timeoutMs ?? COMMAND_TIMEOUT_SECONDS * 1_000;

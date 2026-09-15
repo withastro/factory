@@ -34,7 +34,9 @@ export function PurpleTeam() {
 		env as unknown as AdversarySandboxEnv,
 		input.sandboxId,
 	);
-	useSandbox(adversaryAgentSandbox(sandbox, RED_DIR), { cwd: RED_DIR });
+	useSandbox(adversaryAgentSandbox(sandbox, RED_DIR, input.skill.name), {
+		cwd: RED_DIR,
+	});
 
 	const writeResult = useDataWriter('result', {
 		schema: purpleTeamResultSchema,
