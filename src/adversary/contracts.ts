@@ -119,6 +119,19 @@ export function adversaryCoordinatorKey(
 	return `${input.repositoryId}:${input.pullNumber}`;
 }
 
+export function adversarySandboxId(
+	team: 'blue' | 'purple' | 'publisher',
+	input: Pick<
+		AdversaryWorkflowParams,
+		'repositoryId' | 'pullNumber' | 'deliveryId'
+	>,
+): string {
+	const delivery = input.deliveryId.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+	return `adversary-${team}-${input.repositoryId}-${input.pullNumber}-${delivery}`
+		.slice(0, 63)
+		.replace(/-+$/, '');
+}
+
 export function blueQualifies(result: PurpleTeamResult): boolean {
 	return Object.values(result.qualification).every(Boolean);
 }
