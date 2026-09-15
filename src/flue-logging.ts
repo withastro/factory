@@ -42,6 +42,18 @@ export function createFlueEventLogger(
 		flush,
 		present(event) {
 			switch (event.type) {
+				case 'agent_start':
+					flush();
+					write('[flue] agent:start');
+					break;
+				case 'agent_end':
+					flush();
+					write('[flue] agent:done');
+					break;
+				case 'turn_start':
+					flush();
+					write(`[flue] turn:start purpose=${event.purpose}`);
+					break;
 				case 'text_delta':
 					flushThinking();
 					beginText();
@@ -93,11 +105,38 @@ export function createFlueEventLogger(
 						`[flue] compaction:done messages ${event.messagesBefore} -> ${event.messagesAfter}`,
 					);
 					break;
-				case 'agent_end':
 				case 'turn':
+					flush();
+					write(
+						`[flue] turn:${event.isError ? 'error' : 'done'} purpose=${event.purpose} (${event.durationMs}ms)`,
+					);
+					break;
+				case 'submission_queued':
+					flush();
+					write(
+						`[flue] submission:queued id=${event.submissionId} kind=${event.kind}`,
+					);
+					break;
+				case 'submission_running':
+					flush();
+					write(
+						`[flue] submission:running id=${event.submissionId} attempt=${event.attemptCount}/${event.maxAttempts}`,
+					);
+					break;
+				case 'submission_recovery':
+					flush();
+					write(
+						`[flue] submission:recovery${event.submissionId ? ` id=${event.submissionId}` : ''} operation=${event.operation} outcome=${event.outcome}${event.error ? ` error=${truncate(redact(event.error.message))}` : ''}`,
+					);
+					break;
 				case 'idle':
+					flush();
+					break;
 				case 'submission_settled':
 					flush();
+					write(
+						`[flue] submission:settled id=${event.submissionId} outcome=${event.outcome}${event.error ? ` error=${truncate(redact(event.error.message))}` : ''}`,
+					);
 					break;
 			}
 		},

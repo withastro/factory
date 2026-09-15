@@ -12,6 +12,7 @@ import {
 	credentialsFromWorkerEnv,
 } from '../github/client.ts';
 import { removeLabelIfPresent } from '../github/issues.ts';
+import { readAdversaryAgentResult } from './agent-read.ts';
 import { BlueTeam } from './agents/blue-team.ts';
 import { PurpleTeam } from './agents/purple-team.ts';
 import {
@@ -306,11 +307,12 @@ export class AdversaryWorkflow extends WorkflowEntrypoint<
 				},
 			}),
 		);
-		return step.do(
-			'read blue result',
-			{ ...RETRIES, timeout: '50 minutes' },
-			async () =>
-				extractResult((await agent.read(receipt)).data, blueTeamResultSchema),
+		return readAdversaryAgentResult(
+			step,
+			'blue',
+			receipt.submissionId,
+			(signal) => agent.read(receipt, { signal }),
+			blueTeamResultSchema,
 		);
 	}
 
@@ -361,14 +363,12 @@ export class AdversaryWorkflow extends WorkflowEntrypoint<
 					},
 				}),
 			);
-			return await step.do(
-				'read purple result',
-				{ ...RETRIES, timeout: '50 minutes' },
-				async () =>
-					extractResult(
-						(await agent.read(receipt)).data,
-						purpleTeamResultSchema,
-					),
+			return await readAdversaryAgentResult(
+				step,
+				'purple',
+				receipt.submissionId,
+				(signal) => agent.read(receipt, { signal }),
+				purpleTeamResultSchema,
 			);
 		} finally {
 			await destroyInStep(step, 'purple', sandbox);
@@ -435,14 +435,4 @@ async function destroyInStep(
 		},
 		() => destroyAdversarySandbox(sandbox),
 	);
-}
-
-function extractResult<S extends v.GenericSchema>(
-	data: Record<string, unknown[]>,
-	schema: S,
-): v.InferOutput<S> {
-	const writes = data.result;
-	if (!writes?.length)
-		throw new Error('The adversary agent produced no result.');
-	return v.parse(schema, writes.at(-1));
 }
