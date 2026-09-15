@@ -6,6 +6,7 @@
 
 import * as v from 'valibot';
 import type { LabelAppearance } from '../triage/labels.ts';
+import { isBotAuthor } from './bots.ts';
 import type { InstallationClient } from './client.ts';
 import { isGitHubStatus } from './content.ts';
 
@@ -73,7 +74,8 @@ export async function fetchIssueDetails(
 		createdAt: issue.data.created_at,
 		comments: comments.map((comment) => ({
 			author: { login: comment.user?.login ?? '' },
-			authorIsBot: comment.user?.type === 'Bot',
+			authorIsBot:
+				comment.user?.type === 'Bot' || isBotAuthor(comment.user?.login),
 			authorAssociation: comment.author_association,
 			body: comment.body ?? '',
 			createdAt: comment.created_at,

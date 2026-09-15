@@ -12,9 +12,14 @@
  * - `issue_comment.created`           → triage, unless the comment is on a
  *                                        pull request or written by a bot
  *                                        (bot filtering prevents self-trigger
- *                                        loops)
+ *                                        loops). Bot filtering covers GitHub
+ *                                        App accounts (`user.type === 'Bot'`)
+ *                                        and known user-account bots such as
+ *                                        astrobot-houston, so another bot's
+ *                                        comment can never start a triage.
  */
 
+import { isBotAuthor } from './github/bots.ts';
 import { RELEASE_SECURITY_CHECK_NAMES } from './release-security/checks.ts';
 import {
 	RELEASE_BRANCH_PREFIX,
@@ -184,10 +189,11 @@ export function routeDelivery(
 				reason: 'The comment is on a pull request, not an issue.',
 			};
 		}
-		if (payload.comment?.user?.type === 'Bot') {
+		const commentAuthor = payload.comment?.user?.login;
+		if (payload.comment?.user?.type === 'Bot' || isBotAuthor(commentAuthor)) {
 			return {
 				kind: 'none',
-				reason: `Comment from bot (${payload.comment.user.login ?? 'unknown'}).`,
+				reason: `Comment from bot (${commentAuthor ?? 'unknown'}).`,
 			};
 		}
 		return {
