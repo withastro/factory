@@ -58,6 +58,7 @@ import {
 import { defaultTriageSkill } from './default-skill.ts';
 import {
 	countTriageFailures,
+	formatErrorWithCauses,
 	formatFailureComment,
 	MAX_TRIAGE_FAILURES,
 } from './failure.ts';
@@ -349,7 +350,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				progressComment,
 			);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+			const message = formatErrorWithCauses(error);
 			await step.do('record triage failure', STEP_RETRIES, async () => {
 				const api = await client();
 				const attempt = Math.min(issue.failureCount + 1, MAX_TRIAGE_FAILURES);
@@ -1624,13 +1625,23 @@ async function runPipelineStep<S extends v.GenericSchema>(
 			timeout: readTimeout,
 		},
 		async () => {
-			const reply = await agent.read(receipt);
-			// Step results must be JSON-serializable; every pipeline schema is a
-			// plain object, so the cast is safe.
-			return extractLastWrite(channel, reply.data, schema) as unknown as Record<
-				string,
-				string
-			>;
+			try {
+				const reply = await agent.read(receipt);
+				// Step results must be JSON-serializable; every pipeline schema is a
+				// plain object, so the cast is safe.
+				return extractLastWrite(
+					channel,
+					reply.data,
+					schema,
+				) as unknown as Record<string, string>;
+			} catch (error) {
+				// Preserve Flue's settlement cause in the message before Workflows
+				// serializes the failed attempt and drops Error.cause.
+				throw new Error(
+					`Pipeline stage "${name}" failed (submission ${receipt.submissionId}).\n${formatErrorWithCauses(error)}`,
+					{ cause: error },
+				);
+			}
 		},
 	);
 	return value as unknown as v.InferOutput<S>;
