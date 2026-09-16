@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { IssueDetails } from '../src/github/issues.ts';
 import {
 	countTriageFailures,
+	formatErrorWithCauses,
 	formatFailureComment,
 	MAX_TRIAGE_FAILURES,
 	TRIAGE_FAILURE_MARKER,
@@ -49,6 +50,25 @@ describe('triage failure bookkeeping', () => {
 				]),
 			),
 		).toBe(0);
+	});
+
+	it('preserves nested error causes in a readable message', () => {
+		const settlement = {
+			name: 'SubmissionTimeoutError',
+			message: 'The agent exceeded its 45-minute deadline.',
+		};
+		const run = new Error('Agent run failed.', { cause: settlement });
+		run.name = 'AgentRunError';
+
+		expect(formatErrorWithCauses(run)).toBe(
+			'AgentRunError: Agent run failed.\nCaused by: SubmissionTimeoutError: The agent exceeded its 45-minute deadline.',
+		);
+	});
+
+	it('formats non-Error failures', () => {
+		expect(formatErrorWithCauses('sandbox disconnected')).toBe(
+			'sandbox disconnected',
+		);
 	});
 
 	it('embeds the marker and the retry policy in failure comments', () => {
