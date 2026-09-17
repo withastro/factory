@@ -1,6 +1,7 @@
 {
 	"name": "factory",
 	"private": true,
+	"license": "MIT",
 	"type": "module",
 	"packageManager": "pnpm@10.28.0",
 	"engines": {

@@ -11,6 +11,21 @@ Built by combining [withastro/astro-review](https://github.com/withastro/astro-r
 [withastro/triagebot-action](https://github.com/withastro/triagebot-action)
 (ported from GitHub Actions to Workers).
 
+## Scope
+
+Factory is the triage and review automation **for the Astro repository's own
+use** (`withastro/astro`): its routing rules, labels, skills, and the
+release-security capability are tuned for how the Astro team works. It is
+**not a general-purpose tool** for anyone to install — the package is private
+by design, and the default configuration targets Astro's workflows.
+
+If you want similar automation for your own project, **fork this repository**
+and build your own workflows: point the router (`src/router.ts`) at your
+events, adjust `.github/factory.yml` and the labels for your repository, and
+replace the skills where your workflow differs. The architecture is modular
+on purpose — capabilities are folders plus routing rules — so forking and
+adapting beats installing.
+
 ## Architecture
 
 ```
