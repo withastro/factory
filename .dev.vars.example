@@ -2,6 +2,8 @@ GITHUB_APP_ID="123456"
 GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 GITHUB_WEBHOOK_SECRET="replace-me"
 
-# Only needed when a repository configures an `anthropic/...` model. Workers AI
-# models (the defaults) run through the `AI` binding and need no credentials.
-# ANTHROPIC_API_KEY="sk-ant-..."
+# Cross-account AI Gateway credentials. Keep all three as encrypted Worker
+# secrets in production; these placeholders disclose no gateway values.
+FACTORY_AI_GATEWAY_TOKEN="replace-me"
+FACTORY_AI_GATEWAY_ACCOUNT_ID="replace-me"
+FACTORY_AI_GATEWAY_ID="replace-me"

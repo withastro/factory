@@ -15,18 +15,18 @@ adversary:
   trigger:
     label: ai-adversary
   blueTeam:
-    model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+    model: cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code
   purpleTeam:
-    model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+    model: cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code
 
 review:
   trigger:
     label: ai-review
   skill: .agents/skills/factory-review
-  model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+  model: cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code
 
 triage:
   enabled: true
   autoPrOnFix: true
-  model: cloudflare/@cf/moonshotai/kimi-k2.7-code
-  verificationModel: cloudflare/@cf/moonshotai/kimi-k2.6
+  model: cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code
+  verificationModel: cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.6
