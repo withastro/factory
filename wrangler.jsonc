@@ -9,11 +9,11 @@
 		"required": [
 			"GITHUB_APP_ID",
 			"GITHUB_APP_PRIVATE_KEY",
-			"GITHUB_WEBHOOK_SECRET"
+			"GITHUB_WEBHOOK_SECRET",
+			"FACTORY_AI_GATEWAY_TOKEN",
+			"FACTORY_AI_GATEWAY_ACCOUNT_ID",
+			"FACTORY_AI_GATEWAY_ID"
 		]
-	},
-	"ai": {
-		"binding": "AI"
 	},
 	"worker_loaders": [{ "binding": "LOADER" }],
 	"r2_buckets": [

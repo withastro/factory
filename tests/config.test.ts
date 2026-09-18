@@ -76,21 +76,22 @@ adversary:
     label: ai-adversary
   blueTeam:
     skill: .agents/skills/adversary-blue
-    model: anthropic/claude-opus-4-6
+    model: cloudflare-ai-gateway/claude-opus-4-6
   purpleTeam:
     skill: .agents/skills/adversary-purple
-    model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+    model: cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code
 `),
 		).toMatchObject({
 			adversary: {
 				trigger: { label: 'ai-adversary' },
 				blueTeam: {
 					skill: '.agents/skills/adversary-blue',
-					model: 'anthropic/claude-opus-4-6',
+					model: 'cloudflare-ai-gateway/claude-opus-4-6',
 				},
 				purpleTeam: {
 					skill: '.agents/skills/adversary-purple',
-					model: 'cloudflare/@cf/moonshotai/kimi-k2.7-code',
+					model:
+						'cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code',
 				},
 			},
 		});
@@ -361,42 +362,60 @@ triage:
 		expect(() => parseFactoryConfig('version: 2')).toThrow();
 	});
 
-	it('lets a repository choose a model per capability', () => {
+	it('lets a repository choose gateway-routed Anthropic models', () => {
 		const config = parseFactoryConfig(`
 version: 1
 review:
   trigger:
     label: ai-review
-  model: anthropic/claude-opus-4-6
+  model: cloudflare-ai-gateway/claude-opus-4-6
 triage:
-  model: anthropic/claude-opus-4-6
-  verificationModel: anthropic/claude-haiku-4-5
+  model: cloudflare-ai-gateway/claude-opus-4-6
+  verificationModel: cloudflare-ai-gateway/claude-haiku-4-5
 `);
-		expect(config.review?.model).toBe('anthropic/claude-opus-4-6');
-		expect(config.triage.model).toBe('anthropic/claude-opus-4-6');
-		expect(config.triage.verificationModel).toBe('anthropic/claude-haiku-4-5');
+		expect(config.review?.model).toBe('cloudflare-ai-gateway/claude-opus-4-6');
+		expect(config.triage.model).toBe('cloudflare-ai-gateway/claude-opus-4-6');
+		expect(config.triage.verificationModel).toBe(
+			'cloudflare-ai-gateway/claude-haiku-4-5',
+		);
 	});
 
-	it('keeps Workers AI available alongside Anthropic', () => {
+	it('routes Workers AI through the same gateway provider', () => {
 		const config = parseFactoryConfig(`
 version: 1
 triage:
-  model: cloudflare/@cf/moonshotai/kimi-k2.7-code
-  verificationModel: anthropic/claude-haiku-4-5
+  model: cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code
+  verificationModel: cloudflare-ai-gateway/claude-haiku-4-5
 `);
-		// Workers AI ids carry their own slashes; only the first segment is the
-		// provider, so the rest must survive intact.
+		// Gateway model ids carry their own routing and vendor segments; only the
+		// first segment is the provider, so the rest must survive intact.
 		expect(config.triage.model).toBe(
-			'cloudflare/@cf/moonshotai/kimi-k2.7-code',
+			'cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code',
 		);
-		expect(config.triage.verificationModel).toBe('anthropic/claude-haiku-4-5');
+		expect(config.triage.verificationModel).toBe(
+			'cloudflare-ai-gateway/claude-haiku-4-5',
+		);
+	});
+
+	it('normalizes legacy direct-provider names to gateway routes', () => {
+		const config = parseFactoryConfig(`
+version: 1
+triage:
+  model: anthropic/claude-opus-4-6
+  verificationModel: cloudflare/@cf/moonshotai/kimi-k2.6
+`);
+
+		expect(config.triage.model).toBe('cloudflare-ai-gateway/claude-opus-4-6');
+		expect(config.triage.verificationModel).toBe(
+			'cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.6',
+		);
 	});
 
 	it('falls back to the built-in models for capabilities that name none', () => {
 		const config = parseFactoryConfig(
-			'version: 1\ntriage:\n  model: anthropic/claude-opus-4-6',
+			'version: 1\ntriage:\n  model: cloudflare-ai-gateway/claude-opus-4-6',
 		);
-		expect(config.triage.model).toBe('anthropic/claude-opus-4-6');
+		expect(config.triage.model).toBe('cloudflare-ai-gateway/claude-opus-4-6');
 		expect(config.triage.verificationModel).toBe(VERIFICATION_MODEL);
 	});
 
@@ -405,7 +424,10 @@ triage:
 		'kimi-k2.6',
 		'/claude-opus-4-6',
 		'anthropic/',
+		'cloudflare/',
+		'cloudflare-ai-gateway/',
 		'Anthropic/claude-opus-4-6',
+		'Cloudflare-ai-gateway/claude-opus-4-6',
 	])(
 		'rejects a model that names an unbundled provider or is malformed: %s',
 		(model) => {

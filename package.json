@@ -19,6 +19,7 @@
 		"@biomejs/biome": "2.5.9",
 		"@cloudflare/codemode": "^0.5.1",
 		"@cloudflare/sandbox": "0.12.5",
+		"@earendil-works/pi-ai": "^0.83.0",
 		"@flue/github": "^2.0.7",
 		"@flue/runtime": "^2.0.7",
 		"hono": "4.12.32",
@@ -29,7 +30,6 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.51.1",
-		"@earendil-works/pi-ai": "^0.83.0",
 		"@flue/cli": "^2.0.7",
 		"@flue/vite": "^2.0.7",
 		"@types/node": "^22.10.10",

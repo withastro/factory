@@ -48,10 +48,10 @@ GitHub webhooks ─→ Hono ingress (signature verification)
 - **Workflows**: every side effect is a checkpointed, retried step. The triage
   workflow re-reads issue labels when it runs and routes through the FSM
   (`src/triage/fsm.ts`), so queued events always act on fresh state.
-- **Agents**: Flue agents, defaulting to Workers AI (Kimi) via the `AI`
-  binding, which needs no credentials. Repositories can name a different model
-  per capability, including Anthropic models called directly (see
-  [Models](#models)). The reviewer gets read-only GitHub tools; the triage
+- **Agents**: Flue agents, defaulting to Workers AI (Kimi) through a shared
+  **Cloudflare AI Gateway**. Repositories can name a different gateway-routed
+  model per capability, including Anthropic models (see [Models](#models)).
+  The reviewer gets read-only GitHub tools; the triage
   classifiers get no tools at all, only the conversation text. Only trusted
   workflow code writes to GitHub.
 
@@ -179,16 +179,16 @@ adversary:
     label: ai-adversary
   blueTeam:
     # skill: .agents/skills/adversary-blue
-    # model: anthropic/claude-opus-4-6
+    # model: cloudflare-ai-gateway/claude-opus-4-6
   purpleTeam:
     # skill: .agents/skills/adversary-purple
-    # model: anthropic/claude-opus-4-6
+    # model: cloudflare-ai-gateway/claude-opus-4-6
 
 review:
   trigger:
     label: ai-review
   # skill: .agents/skills/astro-review # overrides the bundled default skill
-  # model: anthropic/claude-opus-4-6   # overrides the built-in reviewer model
+  # model: cloudflare-ai-gateway/claude-opus-4-6 # overrides the built-in reviewer model
   # severity: [critical, high, medium, low]
   # areas: [correctness, security, ...]
 
@@ -197,8 +197,8 @@ triage:
   # autoPrOnFix: false
   # skill: .agents/skills/triage       # overrides the bundled default skill
   # prWriterSkill: .agents/skills/pr-writer # adds repository-specific PR guidance
-  # model: anthropic/claude-opus-4-6   # reproduce/diagnose/fix pipeline
-  # verificationModel: anthropic/claude-haiku-4-5 # fix + retriage classifiers
+  # model: cloudflare-ai-gateway/claude-opus-4-6 # reproduce/diagnose/fix pipeline
+  # verificationModel: cloudflare-ai-gateway/claude-haiku-4-5 # classifiers
   # installCommand: pnpm install --no-frozen-lockfile # [] to install nothing
   # buildCommand: pnpm build           # one command, a list, or a block scalar
   # previewRelease:
@@ -296,19 +296,28 @@ the fix.
 
 ## Models
 
-A model is named as `<provider>/<model>`. Two providers are bundled:
+A model is named as `<provider>/<model>`. Factory bundles only the
+`cloudflare-ai-gateway` provider, which can route to multiple upstreams while
+ensuring every inference request passes through the shared gateway:
 
-- `cloudflare/…` runs on **Workers AI** through the Worker's `AI` binding and
-  needs no credentials. Model ids carry their own slashes
-  (`cloudflare/@cf/moonshotai/kimi-k2.7-code`); only the first segment is the
-  provider.
-- `anthropic/…` calls the **Anthropic API** directly — no AI Gateway in the
-  path — and requires the `ANTHROPIC_API_KEY` secret on the Worker. The key
-  belongs to the factory operator, not to target repositories; agent code never
-  sees it, because the Flue runtime resolves credentials from the environment.
+- Workers AI model ids include a routing prefix and their own vendor segments,
+  for example
+  `cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code`.
+- Anthropic models use their normal model id, for example
+  `cloudflare-ai-gateway/claude-opus-4-6`. They use the gateway's native
+  Anthropic endpoint rather than calling Anthropic directly.
 
-Three models are configurable, each defaulting to a Workers AI model so an
-unconfigured repository keeps working with no API key:
+The direct Workers AI and Anthropic providers are not bundled, and the Worker
+has no `AI` binding, so repository configuration cannot bypass the gateway.
+Existing `anthropic/…` and `cloudflare/…` configuration values remain accepted
+as migration aliases, but Factory rewrites them to their gateway equivalents
+before an agent sees them. Gateway authentication is resolved inside the Flue
+runtime from encrypted Worker secrets and is never available to target
+repositories or agents. Each request disables prompt and response payload
+retention while leaving gateway usage analytics available.
+
+Five model settings are configurable and default to gateway-routed Workers AI
+models:
 
 | Setting | Used by | Default |
 | --- | --- | --- |
@@ -322,10 +331,13 @@ Defaults live in `src/models.ts`. The verification agents only classify
 conversation text and hold no tools, so they do not need a coding model.
 
 Providers are bundled at build time by the `providers` array in
-`flue.config.ts`, and `MODEL_PROVIDERS` in `src/models.ts` mirrors it. A model
-naming any other provider is rejected when the configuration is parsed, rather
-than failing at the first model call partway through an agent run — so adding a
-provider means changing both places.
+`flue.config.ts`, and `MODEL_PROVIDERS` in `src/models.ts` mirrors it. New
+configuration should name `cloudflare-ai-gateway`; the legacy `anthropic` and
+`cloudflare` prefixes are syntax aliases only. Every other provider is rejected
+when configuration is parsed rather than failing at the first model call
+partway through an agent run. `src/ai-gateway.ts` overrides the bundled
+provider's auth with Factory-scoped secrets and adds metadata for current
+Workers AI models that have not reached Pi's gateway catalog yet.
 
 ## Preview releases
 
@@ -385,8 +397,11 @@ Three deliberate design choices:
 - **Webhook URL**: `https://<worker>/channels/github/webhook`.
 - **Secrets** (`wrangler secret put` / `.dev.vars`): `GITHUB_APP_ID`,
   `GITHUB_APP_PRIVATE_KEY` (PKCS#8 — convert with
-  `openssl pkcs8 -topk8 -nocrypt`), `GITHUB_WEBHOOK_SECRET`. Add
-  `ANTHROPIC_API_KEY` only if a repository configures an `anthropic/…` model.
+  `openssl pkcs8 -topk8 -nocrypt`), `GITHUB_WEBHOOK_SECRET`,
+  `FACTORY_AI_GATEWAY_TOKEN`, `FACTORY_AI_GATEWAY_ACCOUNT_ID`, and
+  `FACTORY_AI_GATEWAY_ID`. The gateway connection values deliberately use
+  Factory-scoped names so Wrangler cannot mistake the remote gateway account
+  or token for Factory's deployment credentials.
 
 Public and private repositories are both supported. Public repositories get
 an anonymous blobless clone (the triage sandbox holds no credentials at all);

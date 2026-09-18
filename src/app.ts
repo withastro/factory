@@ -1,10 +1,12 @@
-import { instrument, observe } from '@flue/runtime';
+import { instrument, observe, setProvider } from '@flue/runtime';
 import { createCloudflareTracing } from '@flue/runtime/cloudflare';
 import { Hono } from 'hono';
+import { createFactoryAIGatewayProvider } from './ai-gateway.ts';
 import { githubChannel } from './channels/github.ts';
 import type { AppHonoEnv } from './env.ts';
 import { createFlueEventLogger, type FlueEventLogger } from './flue-logging.ts';
 
+setProvider(createFactoryAIGatewayProvider());
 instrument(createCloudflareTracing({ content: false }));
 
 const flueEventLoggers = new Map<string, FlueEventLogger>();
