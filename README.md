@@ -309,10 +309,12 @@ ensuring every inference request passes through the shared gateway:
 
 The direct Workers AI and Anthropic providers are not bundled, and the Worker
 has no `AI` binding, so repository configuration cannot bypass the gateway.
-Gateway authentication is resolved inside the Flue runtime from encrypted
-Worker secrets and is never available to target repositories or agents. Each
-request disables prompt and response payload retention while leaving gateway
-usage analytics available.
+Existing `anthropic/…` and `cloudflare/…` configuration values remain accepted
+as migration aliases, but Factory rewrites them to their gateway equivalents
+before an agent sees them. Gateway authentication is resolved inside the Flue
+runtime from encrypted Worker secrets and is never available to target
+repositories or agents. Each request disables prompt and response payload
+retention while leaving gateway usage analytics available.
 
 Five model settings are configurable and default to gateway-routed Workers AI
 models:
@@ -329,12 +331,13 @@ Defaults live in `src/models.ts`. The verification agents only classify
 conversation text and hold no tools, so they do not need a coding model.
 
 Providers are bundled at build time by the `providers` array in
-`flue.config.ts`, and `MODEL_PROVIDERS` in `src/models.ts` mirrors it. A model
-naming any provider other than `cloudflare-ai-gateway` is rejected when the
-configuration is parsed rather than failing at the first model call partway
-through an agent run. `src/ai-gateway.ts` overrides the bundled provider's auth
-with Factory-scoped secrets and adds metadata for current Workers AI models
-that have not reached Pi's gateway catalog yet.
+`flue.config.ts`, and `MODEL_PROVIDERS` in `src/models.ts` mirrors it. New
+configuration should name `cloudflare-ai-gateway`; the legacy `anthropic` and
+`cloudflare` prefixes are syntax aliases only. Every other provider is rejected
+when configuration is parsed rather than failing at the first model call
+partway through an agent run. `src/ai-gateway.ts` overrides the bundled
+provider's auth with Factory-scoped secrets and adds metadata for current
+Workers AI models that have not reached Pi's gateway catalog yet.
 
 ## Preview releases
 

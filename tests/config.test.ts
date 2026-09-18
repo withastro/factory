@@ -397,6 +397,20 @@ triage:
 		);
 	});
 
+	it('normalizes legacy direct-provider names to gateway routes', () => {
+		const config = parseFactoryConfig(`
+version: 1
+triage:
+  model: anthropic/claude-opus-4-6
+  verificationModel: cloudflare/@cf/moonshotai/kimi-k2.6
+`);
+
+		expect(config.triage.model).toBe('cloudflare-ai-gateway/claude-opus-4-6');
+		expect(config.triage.verificationModel).toBe(
+			'cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.6',
+		);
+	});
+
 	it('falls back to the built-in models for capabilities that name none', () => {
 		const config = parseFactoryConfig(
 			'version: 1\ntriage:\n  model: cloudflare-ai-gateway/claude-opus-4-6',
@@ -407,11 +421,12 @@ triage:
 
 	it.each([
 		'openai/gpt-5',
-		'cloudflare/@cf/moonshotai/kimi-k2.7-code',
-		'anthropic/claude-opus-4-6',
 		'kimi-k2.6',
 		'/claude-opus-4-6',
+		'anthropic/',
+		'cloudflare/',
 		'cloudflare-ai-gateway/',
+		'Anthropic/claude-opus-4-6',
 		'Cloudflare-ai-gateway/claude-opus-4-6',
 	])(
 		'rejects a model that names an unbundled provider or is malformed: %s',

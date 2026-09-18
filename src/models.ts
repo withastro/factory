@@ -4,7 +4,8 @@
  * A model specifier is `<provider>/<model>`, resolved against the providers
  * bundled by `flue.config.ts`. Factory exposes only `cloudflare-ai-gateway/…`:
  * Workers AI, Anthropic, and other upstream models all run through the shared
- * gateway, whose credentials remain in Factory-scoped Worker secrets.
+ * gateway, whose credentials remain in Factory-scoped Worker secrets. Legacy
+ * direct-provider names are normalized to gateway model ids during parsing.
  *
  * The constants below are the defaults. A repository can override any of them
  * in `.github/factory.yml` (`adversary.blueTeam.model`,
@@ -13,13 +14,19 @@
  */
 
 /**
- * Providers a repository is allowed to name. This must stay in sync with the
- * `providers` array in `flue.config.ts` — naming a provider that was not
- * bundled fails at the first model call, deep inside an agent, so
- * configuration is validated against this list up front instead.
+ * Providers available at runtime. This must stay in sync with the `providers`
+ * array in `flue.config.ts`; legacy config aliases are listed separately and
+ * normalized before a model call.
  */
 export const AI_GATEWAY_PROVIDER = 'cloudflare-ai-gateway';
 export const MODEL_PROVIDERS = [AI_GATEWAY_PROVIDER] as const;
+
+/** Existing repository configs accepted as syntax aliases during migration. */
+export const LEGACY_MODEL_PROVIDERS = ['anthropic', 'cloudflare'] as const;
+export const MODEL_SPECIFIER_PROVIDERS = [
+	...MODEL_PROVIDERS,
+	...LEGACY_MODEL_PROVIDERS,
+] as const;
 
 export const WORKERS_AI_CODE_MODEL_ID = '@cf/moonshotai/kimi-k2.7-code';
 export const CODE_MODEL_ID = `workers-ai/${WORKERS_AI_CODE_MODEL_ID}`;
@@ -44,11 +51,29 @@ export function modelProvider(specifier: string): string | undefined {
 	return specifier.slice(0, separator);
 }
 
-/** Whether a specifier names a bundled provider and a non-empty model. */
+/** Whether a specifier names the gateway or a supported legacy alias. */
 export function isSupportedModel(specifier: string): boolean {
 	const provider = modelProvider(specifier);
 	return (
 		provider !== undefined &&
-		(MODEL_PROVIDERS as readonly string[]).includes(provider)
+		(MODEL_SPECIFIER_PROVIDERS as readonly string[]).includes(provider)
 	);
+}
+
+/**
+ * Convert direct-provider syntax from existing repository configs into the
+ * equivalent gateway model id. The direct providers are never registered.
+ */
+export function normalizeModelSpecifier(specifier: string): string {
+	const separator = specifier.indexOf('/');
+	const provider = specifier.slice(0, separator);
+	const model = specifier.slice(separator + 1);
+
+	if (provider === 'anthropic') {
+		return `${AI_GATEWAY_PROVIDER}/${model}`;
+	}
+	if (provider === 'cloudflare') {
+		return `${AI_GATEWAY_PROVIDER}/workers-ai/${model}`;
+	}
+	return specifier;
 }

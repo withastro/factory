@@ -17,7 +17,8 @@ import { validateSkillDirectory } from './github/skill.ts';
 import {
 	CODE_MODEL,
 	isSupportedModel,
-	MODEL_PROVIDERS,
+	MODEL_SPECIFIER_PROVIDERS,
+	normalizeModelSpecifier,
 	VERIFICATION_MODEL,
 } from './models.ts';
 import {
@@ -108,8 +109,9 @@ const modelSchema = v.pipe(
 	v.maxLength(200),
 	v.check(
 		isSupportedModel,
-		`A model must be "<provider>/<model>", where provider is one of: ${MODEL_PROVIDERS.join(', ')}.`,
+		`A model must be "<provider>/<model>", where provider is one of: ${MODEL_SPECIFIER_PROVIDERS.join(', ')}.`,
 	),
+	v.transform(normalizeModelSpecifier),
 );
 
 const MAX_COMMANDS = 20;
