@@ -19,6 +19,7 @@ export const issueDetailsSchema = v.object({
 	author: v.object({ login: v.string() }),
 	authorAssociation: v.string(),
 	labels: v.array(v.string()),
+	assignees: v.optional(v.array(v.string()), []),
 	createdAt: v.string(),
 	comments: v.array(
 		v.object({
@@ -71,6 +72,7 @@ export async function fetchIssueDetails(
 		labels: issue.data.labels.map((label) =>
 			typeof label === 'string' ? label : (label.name ?? ''),
 		),
+		assignees: (issue.data.assignees ?? []).map((user) => user.login),
 		createdAt: issue.data.created_at,
 		comments: comments.map((comment) => ({
 			author: { login: comment.user?.login ?? '' },
@@ -237,6 +239,23 @@ export async function replaceIssueLabels(
 		}
 	}
 	await addIssueLabels(client, owner, repo, issueNumber, [newLabel]);
+}
+
+/** Remove assignees, tolerating ones that are already gone. */
+export async function removeIssueAssignees(
+	client: InstallationClient,
+	owner: string,
+	repo: string,
+	issueNumber: number,
+	assignees: string[],
+): Promise<void> {
+	if (assignees.length === 0) return;
+	await client.rest.issues.removeAssignees({
+		owner,
+		repo,
+		issue_number: issueNumber,
+		assignees,
+	});
 }
 
 export async function postIssueComment(

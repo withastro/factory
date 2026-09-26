@@ -34,6 +34,7 @@ import {
 	type PullRequestRef,
 	partitionClassificationLabels,
 	postIssueComment,
+	removeIssueAssignees,
 	removeLabelIfPresent,
 	replaceIssueLabels,
 	saveIssueComment,
@@ -41,6 +42,7 @@ import {
 	upsertIssueComment,
 } from '../github/issues.ts';
 import { readSkillSnapshot, type SkillSnapshot } from '../github/skill.ts';
+import { checkPersonaAssignment } from '../personas/personas.ts';
 import { FixVerifier } from './agents/fix-verifier.ts';
 import { RetriageJudge } from './agents/retriage-judge.ts';
 import { TriagePipeline } from './agents/triage-pipeline.ts';
@@ -243,10 +245,31 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				return finish({ outcome: 'skipped', reason: routed.action.reason });
 			case 'cleanup':
 				return finish(await this.cleanup(step, client, params));
-			case 'triage':
-				return finish(
-					await this.triage(step, client, credentials, params, routed),
+			case 'triage': {
+				const outcome = await this.triage(
+					step,
+					client,
+					credentials,
+					params,
+					routed,
 				);
+				if (params.issueAction === 'assigned' && params.assignee) {
+					// Assignment is a one-shot request, like a trigger label: the
+					// persona hands the issue back when it's done, and reassigning it
+					// runs triage again.
+					const assignee = params.assignee;
+					await step.do('unassign triage persona', STEP_RETRIES, async () => {
+						await removeIssueAssignees(
+							await client(),
+							params.owner,
+							params.repo,
+							params.issueNumber,
+							[assignee],
+						);
+					});
+				}
+				return finish(outcome);
+			}
 			case 'retriage':
 				return finish(
 					await this.retriage(step, client, credentials, params, routed),
@@ -1540,8 +1563,18 @@ async function loadAndRoute(
 		params.repo,
 		params.issueNumber,
 	);
-	const action =
-		params.issueAction === 'comment' && isBotAuthor(params.commentAuthor)
+	const personaSkip =
+		params.issueAction === 'assigned'
+			? checkPersonaAssignment(
+					config.personas,
+					'triage',
+					params.assignee,
+					details.assignees,
+				)
+			: undefined;
+	const action = personaSkip
+		? { type: 'skip' as const, reason: personaSkip }
+		: params.issueAction === 'comment' && isBotAuthor(params.commentAuthor)
 			? {
 					type: 'skip' as const,
 					reason: `Comment from bot (${params.commentAuthor}).`,

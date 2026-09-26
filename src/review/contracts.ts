@@ -41,11 +41,26 @@ export const reviewWorkflowParamsSchema = v.pipe(
 		owner: nonEmptyString,
 		repo: nonEmptyString,
 		pullNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
-		label: nonEmptyString,
+		/** Set when the review was triggered by adding the configured label. */
+		label: v.optional(nonEmptyString),
+		/**
+		 * Set when the review was triggered by requesting review from, or
+		 * assigning, the reviewer persona.
+		 */
+		persona: v.optional(
+			v.object({
+				login: nonEmptyString,
+				signal: v.picklist(['review-requested', 'assigned']),
+			}),
+		),
 		baseSha: shaSchema,
 		configurationSha: v.optional(shaSchema),
 		headSha: shaSchema,
 	}),
+	v.check(
+		(params) => (params.label === undefined) !== (params.persona === undefined),
+		'A review is triggered by exactly one of a label or the reviewer persona.',
+	),
 	v.transform((params) => ({
 		...params,
 		configurationSha: params.configurationSha ?? params.baseSha,
@@ -63,7 +78,8 @@ export const reviewAgentInputSchema = v.object({
 	headSha: shaSchema,
 	title: v.string(),
 	body: v.string(),
-	triggerLabel: nonEmptyString,
+	/** The configured trigger label, for label-triggered reviews. */
+	triggerLabel: v.optional(nonEmptyString),
 	model: nonEmptyString,
 	severities: v.pipe(v.array(nonEmptyString), v.minLength(1), v.maxLength(50)),
 	areas: v.pipe(v.array(nonEmptyString), v.minLength(1), v.maxLength(50)),

@@ -20,6 +20,7 @@ function issueWith(
 		author: { login: 'reporter' },
 		authorAssociation: 'NONE',
 		labels: [],
+		assignees: [],
 		createdAt: '2026-01-01T00:00:00Z',
 		comments: commentBodies.map((comment) => ({
 			author: { login: 'factory[bot]' },

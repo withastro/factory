@@ -29,6 +29,23 @@ describe('triage FSM', () => {
 		});
 	});
 
+	it('routes a triage persona assignment to triage whatever the label', () => {
+		for (const issueLabels of [[], [labels.fixPending], [labels.fixVerified]]) {
+			expect(
+				route({ action: 'assigned', issueState: 'open', issueLabels }, labels),
+			).toEqual({ type: 'triage' });
+		}
+	});
+
+	it('skips a triage persona assignment on a closed issue', () => {
+		expect(
+			route(
+				{ action: 'assigned', issueState: 'closed', issueLabels: [] },
+				labels,
+			),
+		).toMatchObject({ type: 'skip' });
+	});
+
 	it('routes closed issue to cleanup', () => {
 		expect(
 			route(

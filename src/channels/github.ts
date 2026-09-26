@@ -5,12 +5,20 @@ import {
 	adversaryWorkflowParamsSchema,
 } from '../adversary/contracts.ts';
 import { matchesAdversaryTrigger } from '../adversary/setup.ts';
+import {
+	type AuthorWorkflowParams,
+	authorCoordinatorKey,
+	authorWorkflowParamsSchema,
+} from '../author/contracts.ts';
+import { checkOwnership } from '../author/ownership.ts';
+import { loadFactoryConfig } from '../config.ts';
 import type { AppHonoEnv } from '../env.ts';
 import {
 	createInstallationClient,
 	credentialsFromWorkerEnv,
 	requiredProcessEnv,
 } from '../github/client.ts';
+import { resolvePersona } from '../personas/personas.ts';
 import {
 	RELEASE_SECURITY_TARGET,
 	type ReleaseSecurityWorkflowParams,
@@ -27,12 +35,17 @@ import {
 } from '../review/contracts.ts';
 import { matchesReviewTrigger } from '../review/setup.ts';
 import {
+	type AuthorActivityIntent,
 	type Dispatch,
+	type PersonaAssignmentIntent,
 	type ReleaseSecurityRerequestIntent,
 	type ReviewIntentParams,
 	routeDelivery,
 } from '../router.ts';
-import { triageCoordinatorKey } from '../triage/contracts.ts';
+import {
+	type TriageWorkflowParams,
+	triageCoordinatorKey,
+} from '../triage/contracts.ts';
 
 export const githubChannel = createGitHubChannel<AppHonoEnv>({
 	webhookSecret: requiredProcessEnv('GITHUB_WEBHOOK_SECRET'),
@@ -49,6 +62,10 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 				return Response.json({ accepted: false, reason: dispatch.reason });
 			case 'review':
 				return dispatchReview(c.env, dispatch.params, delivery);
+			case 'persona-assignment':
+				return dispatchPersonaAssignment(c.env, dispatch.params, delivery);
+			case 'author-activity':
+				return dispatchAuthorActivity(c.env, dispatch.params, delivery);
 			case 'triage': {
 				const coordinator = c.env.TRIAGE_COORDINATOR.getByName(
 					triageCoordinatorKey(dispatch.params),
@@ -131,6 +148,207 @@ async function dispatchReview(
 	const admission = await coordinator.enqueue(params);
 	logAdmitted(delivery, 'review', admission.disposition);
 	return Response.json({ accepted: true, capability: 'review', ...admission });
+}
+
+/**
+ * Resolve an assignment or review request against the repository's personas
+ * and start the capability behind the persona. Assignments to anyone who
+ * isn't a persona are the overwhelming majority, and are simply declined.
+ */
+async function dispatchPersonaAssignment(
+	env: AppHonoEnv['Bindings'],
+	intent: PersonaAssignmentIntent,
+	delivery: DeliveryContext,
+): Promise<Response> {
+	const client = await createInstallationClient(
+		credentialsFromWorkerEnv(env),
+		intent.installationId,
+	);
+	const subject = intent.subject;
+	// Pull request configuration is pinned to the target branch tip, like a
+	// label-triggered review; issue configuration comes from the default
+	// branch, like triage. Both are maintainer-controlled.
+	const configurationSha =
+		subject.type === 'pull_request'
+			? (
+					await client.rest.repos.getBranch({
+						owner: intent.owner,
+						repo: intent.repo,
+						branch: subject.baseRef,
+					})
+				).data.commit.sha
+			: undefined;
+	const { config } = await loadFactoryConfig(
+		client,
+		intent.owner,
+		intent.repo,
+		configurationSha ?? intent.defaultBranch,
+	);
+	const persona = resolvePersona(config.personas, intent.login);
+	const decline = (reason: string) => {
+		logAdmitted(delivery, 'persona', 'rejected', reason);
+		return Response.json({ accepted: false, reason });
+	};
+	if (!persona) return decline(`${intent.login} is not a persona.`);
+
+	if (subject.type === 'issue') {
+		if (persona !== 'triage' || intent.signal !== 'assigned') {
+			return decline(`The ${persona} persona does not act on issues.`);
+		}
+		const params: TriageWorkflowParams = {
+			deliveryId: intent.deliveryId,
+			installationId: intent.installationId,
+			repositoryId: intent.repositoryId,
+			owner: intent.owner,
+			repo: intent.repo,
+			issueNumber: subject.issueNumber,
+			defaultBranch: intent.defaultBranch,
+			issueAction: 'assigned',
+			assignee: intent.login,
+			repoIsPrivate: intent.repoIsPrivate,
+		};
+		const coordinator = env.TRIAGE_COORDINATOR.getByName(
+			triageCoordinatorKey(params),
+		);
+		const admission = await coordinator.enqueue(params);
+		logAdmitted(delivery, 'triage', admission.disposition);
+		return Response.json({
+			accepted: true,
+			capability: 'triage',
+			persona,
+			...admission,
+		});
+	}
+
+	if (persona === 'reviewer') {
+		const params = v.parse(reviewWorkflowParamsSchema, {
+			deliveryId: intent.deliveryId,
+			installationId: intent.installationId,
+			repositoryId: intent.repositoryId,
+			owner: intent.owner,
+			repo: intent.repo,
+			pullNumber: subject.pullNumber,
+			persona: { login: intent.login, signal: intent.signal },
+			baseSha: subject.baseSha,
+			configurationSha,
+			headSha: subject.headSha,
+		});
+		const coordinator = env.REVIEW_COORDINATOR.getByName(
+			reviewCoordinatorKey(params),
+		);
+		const admission = await coordinator.enqueue(params);
+		logAdmitted(delivery, 'review', admission.disposition);
+		return Response.json({
+			accepted: true,
+			capability: 'review',
+			persona,
+			...admission,
+		});
+	}
+
+	if (persona === 'author') {
+		if (intent.signal !== 'assigned') {
+			return decline('The author persona is assigned, not asked to review.');
+		}
+		return enqueueAuthor(
+			env,
+			{
+				deliveryId: intent.deliveryId,
+				installationId: intent.installationId,
+				repositoryId: intent.repositoryId,
+				owner: intent.owner,
+				repo: intent.repo,
+				pullNumber: subject.pullNumber,
+				defaultBranch: intent.defaultBranch,
+				repoIsPrivate: intent.repoIsPrivate,
+				trigger: 'adopted',
+			},
+			delivery,
+		);
+	}
+
+	return decline(`The ${persona} persona does not act on pull requests.`);
+}
+
+/**
+ * Activity on a pull request the author persona may own. Ownership is checked
+ * here against live state so ordinary pull request traffic never starts a
+ * workflow; the workflow checks it again when it runs.
+ */
+async function dispatchAuthorActivity(
+	env: AppHonoEnv['Bindings'],
+	intent: AuthorActivityIntent,
+	delivery: DeliveryContext,
+): Promise<Response> {
+	const client = await createInstallationClient(
+		credentialsFromWorkerEnv(env),
+		intent.installationId,
+	);
+	const { config } = await loadFactoryConfig(
+		client,
+		intent.owner,
+		intent.repo,
+		intent.defaultBranch,
+	);
+	const author = config.personas?.author;
+	const decline = (reason: string) => {
+		logAdmitted(delivery, 'author', 'rejected', reason);
+		return Response.json({ accepted: false, reason });
+	};
+	if (!author) return decline('No author persona is configured.');
+
+	const pull = await client.rest.pulls.get({
+		owner: intent.owner,
+		repo: intent.repo,
+		pull_number: intent.pullNumber,
+	});
+	const ownership = checkOwnership(
+		{
+			state: pull.data.state,
+			isCrossRepository:
+				pull.data.head.repo?.full_name !== pull.data.base.repo.full_name,
+			headRef: pull.data.head.ref,
+			assignees: (pull.data.assignees ?? []).map((user) => user.login),
+		},
+		author.login,
+	);
+	if (ownership) return decline(ownership);
+
+	return enqueueAuthor(
+		env,
+		{
+			deliveryId: intent.deliveryId,
+			installationId: intent.installationId,
+			repositoryId: intent.repositoryId,
+			owner: intent.owner,
+			repo: intent.repo,
+			pullNumber: intent.pullNumber,
+			defaultBranch: intent.defaultBranch,
+			repoIsPrivate: intent.repoIsPrivate,
+			trigger: intent.activity,
+			...(intent.actor ? { actor: intent.actor } : {}),
+		},
+		delivery,
+	);
+}
+
+async function enqueueAuthor(
+	env: AppHonoEnv['Bindings'],
+	input: AuthorWorkflowParams,
+	delivery: DeliveryContext,
+): Promise<Response> {
+	const params = v.parse(authorWorkflowParamsSchema, input);
+	const coordinator = env.AUTHOR_COORDINATOR.getByName(
+		authorCoordinatorKey(params),
+	);
+	const admission = await coordinator.enqueue(params);
+	logAdmitted(delivery, 'author', admission.disposition);
+	return Response.json({
+		accepted: true,
+		capability: 'author',
+		persona: 'author',
+		...admission,
+	});
 }
 
 async function dispatchReleaseSecurity(
@@ -249,6 +467,21 @@ function routedTarget(dispatch: Dispatch): Record<string, unknown> {
 				pullNumber: dispatch.params.pullNumber,
 				label: dispatch.params.label,
 			};
+		case 'persona-assignment':
+			return {
+				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
+				login: dispatch.params.login,
+				signal: dispatch.params.signal,
+				...(dispatch.params.subject.type === 'issue'
+					? { issueNumber: dispatch.params.subject.issueNumber }
+					: { pullNumber: dispatch.params.subject.pullNumber }),
+			};
+		case 'author-activity':
+			return {
+				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
+				pullNumber: dispatch.params.pullNumber,
+				activity: dispatch.params.activity,
+			};
 		case 'triage':
 			return {
 				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
@@ -278,7 +511,13 @@ function routedTarget(dispatch: Dispatch): Record<string, unknown> {
  */
 function logAdmitted(
 	delivery: DeliveryContext,
-	capability: 'review' | 'triage' | 'release-security' | 'adversary',
+	capability:
+		| 'review'
+		| 'triage'
+		| 'release-security'
+		| 'adversary'
+		| 'author'
+		| 'persona',
 	disposition: string,
 	reason?: string,
 ): void {

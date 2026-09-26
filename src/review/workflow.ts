@@ -9,8 +9,12 @@ import type { WorkerEnv } from '../env.ts';
 import {
 	createInstallationClient,
 	credentialsFromWorkerEnv,
+	type InstallationClient,
 } from '../github/client.ts';
-import { removeLabelIfPresent } from '../github/issues.ts';
+import {
+	removeIssueAssignees,
+	removeLabelIfPresent,
+} from '../github/issues.ts';
 import { PullRequestReviewer } from './agents/pull-request-reviewer.ts';
 import {
 	completeReviewCheck,
@@ -126,14 +130,24 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 					credentials,
 					trigger.installationId,
 				);
-				await removeLabelIfPresent(
-					client,
-					trigger.owner,
-					trigger.repo,
-					trigger.pullNumber,
-					agentInput.triggerLabel,
-				);
-				return agentInput.triggerLabel;
+				// Both triggers are one-shot: the label comes off, and the persona's
+				// review request or assignment is withdrawn (Factory's review is
+				// published by the App, which can't satisfy a request made of the
+				// persona account). Re-adding either runs another review.
+				if (trigger.persona) {
+					await withdrawReviewerPersona(client, trigger);
+					return trigger.persona.login;
+				}
+				if (agentInput.triggerLabel) {
+					await removeLabelIfPresent(
+						client,
+						trigger.owner,
+						trigger.repo,
+						trigger.pullNumber,
+						agentInput.triggerLabel,
+					);
+				}
+				return agentInput.triggerLabel ?? null;
 			},
 		);
 
@@ -292,4 +306,28 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 		await finishCoordination();
 		return outcome;
 	}
+}
+
+async function withdrawReviewerPersona(
+	client: InstallationClient,
+	trigger: ReviewWorkflowParams,
+): Promise<void> {
+	const persona = trigger.persona;
+	if (!persona) return;
+	if (persona.signal === 'review-requested') {
+		await client.rest.pulls.removeRequestedReviewers({
+			owner: trigger.owner,
+			repo: trigger.repo,
+			pull_number: trigger.pullNumber,
+			reviewers: [persona.login],
+		});
+		return;
+	}
+	await removeIssueAssignees(
+		client,
+		trigger.owner,
+		trigger.repo,
+		trigger.pullNumber,
+		[persona.login],
+	);
 }

@@ -130,7 +130,7 @@ function formatFindingLead(finding: Finding): string {
 	return `\`[${finding.severity}][${finding.area}]\`: ${containModelMarkdown(finding.title)}`;
 }
 
-function containModelMarkdown(value: string): string {
+export function containModelMarkdown(value: string): string {
 	return value
 		.replaceAll('<', '&lt;')
 		.replace(

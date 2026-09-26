@@ -272,6 +272,106 @@ export async function commitAndPush(
 	return { pushed: true, detail: 'pushed' };
 }
 
+/**
+ * Commit (if the tree is dirty) and push a branch someone else may also be
+ * pushing to, without ever force-pushing.
+ *
+ * Used by the code author persona, which shares its branch with maintainers:
+ * when the push is rejected because the branch moved, the new commits are
+ * rebased under ours once and the push retried. A conflicting rebase is
+ * aborted and reported instead of resolved, so a human's commits are never
+ * rewritten or discarded. Like {@link commitAndPush}, the token appears only
+ * in single commands and is never stored in git config.
+ */
+export async function commitAndPushFastForward(
+	sandbox: TriageSandbox,
+	options: {
+		owner: string;
+		repo: string;
+		branch: string;
+		message: string;
+		token: string;
+		dirty: boolean;
+	},
+): Promise<{ pushed: boolean; sha: string | null; detail: string }> {
+	assertRepoIdentifier(options.owner);
+	assertRepoIdentifier(options.repo);
+	assertGitRef(options.branch);
+
+	if (options.dirty) {
+		await sandbox.writeFile('/tmp/factory-commit-message.txt', options.message);
+		const commit = await exec(
+			sandbox,
+			'commit',
+			`cd ${REPO_DIR} && git add -A && git commit -F /tmp/factory-commit-message.txt`,
+			120,
+		);
+		if (!commit.success) {
+			return {
+				pushed: false,
+				sha: null,
+				detail: `git commit failed: ${tail(commit.stderr)}`,
+			};
+		}
+	}
+
+	const remote = shellQuote(
+		`https://x-access-token:${options.token}@github.com/${options.owner}/${options.repo}.git`,
+	);
+	const refspec = shellQuote(`HEAD:refs/heads/${options.branch}`);
+	const push = () =>
+		exec(
+			sandbox,
+			'push',
+			`cd ${REPO_DIR} && git push ${remote} ${refspec}`,
+			300,
+		);
+
+	let result = await push();
+	if (!result.success && isRejectedPush(result.stderr)) {
+		const rebase = await exec(
+			sandbox,
+			'rebase',
+			// fetch + rebase rather than `git pull`: pull records its command
+			// line, token URL included, in the reflog.
+			`cd ${REPO_DIR} && git fetch ${remote} ${shellQuote(options.branch)} && git rebase FETCH_HEAD`,
+			300,
+		);
+		if (!rebase.success) {
+			await exec(
+				sandbox,
+				'rebase abort',
+				`cd ${REPO_DIR} && git rebase --abort`,
+				60,
+			);
+			return {
+				pushed: false,
+				sha: null,
+				detail: `the branch moved and the new commits conflict with this change: ${redactToken(tail(rebase.stderr || rebase.stdout))}`,
+			};
+		}
+		result = await push();
+	}
+	if (!result.success) {
+		return {
+			pushed: false,
+			sha: null,
+			detail: `git push failed: ${redactToken(tail(result.stderr))}`,
+		};
+	}
+	const head = await execOrThrow(
+		sandbox,
+		'rev-parse',
+		`cd ${REPO_DIR} && git rev-parse HEAD`,
+		30,
+	);
+	return { pushed: true, sha: head.stdout.trim(), detail: 'pushed' };
+}
+
+function isRejectedPush(stderr: string): boolean {
+	return /\[rejected\]|non-fast-forward|fetch first/i.test(stderr);
+}
+
 /** Destroy the sandbox, tolerating failures — it sleeps on its own anyway. */
 export async function destroyTriageSandbox(
 	sandbox: TriageSandbox,

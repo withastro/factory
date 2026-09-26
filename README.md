@@ -34,12 +34,16 @@ GitHub webhooks ─→ Hono ingress (signature verification)
                         ├→ ReviewCoordinator DO (one per PR)  ─→ ReviewWorkflow ─→ PullRequestReviewer agent
                         ├→ AdversaryCoordinator DO (one per PR) ─→ AdversaryWorkflow ─→ BlueTeam / PurpleTeam agents
                         ├→ TriageCoordinator DO (one per issue) ─→ TriageWorkflow ─→ FixVerifier / RetriageJudge agents
+                        ├→ AuthorCoordinator DO (one per PR) ─→ AuthorWorkflow ─→ CodeAuthor agent (one conversation per PR)
                         └→ ReleaseSecurityCoordinator DO (one per PR) ─→ ReleaseSecurityWorkflow ─→ ReleaseSecurityReviewer agent
 ```
 
 - **Router** (`src/router.ts`): deterministic and pure. `pull_request.labeled`
   → review; `issues.opened|reopened|closed` and human `issue_comment.created`
-  → triage. Bot comments are dropped at the door to prevent self-trigger
+  → triage; `issues.assigned`, `pull_request.assigned`, and
+  `pull_request.review_requested` → [personas](#personas); human reviews,
+  review comments, comments, and failed checks on Factory pull requests → the
+  code author. Bot activity is dropped at the door to prevent self-trigger
   loops.
 - **Coordinators** (`src/coordination/queue-coordinator.ts`): a Durable Object
   per entity serializes work — one active workflow, one pending (newest wins),
@@ -148,6 +152,40 @@ labels (visible, maintainer-overridable):
 Missing labels are created automatically with sensible colors, so installing
 on a fresh repository requires no setup.
 
+### Code author (`src/author/`)
+
+The code author persona owns Factory-created pull requests (same-repository
+`factory/*` branches, such as triage fix PRs and adversary drafts) while they
+are assigned to it. See [Personas](#personas) for how it is addressed.
+
+- **Adoption.** Assigning the persona to a pull request posts an ownership
+  status comment and immediately addresses any outstanding maintainer
+  feedback and failing checks.
+- **Rounds.** After that, each maintainer review, review comment, or pull
+  request comment, and each failed check suite or workflow run on the branch,
+  queues a round. The workflow re-reads the pull request when it runs, so
+  feedback that arrived while a round was running collapses into the next
+  one. A round clones the branch into a credential-free sandbox (bootstrapped
+  with the triage `installCommand` / `buildCommand`), stages the failing
+  Actions job log tails, and hands the agent the round's feedback. The
+  workflow then commits the agent's working tree and pushes it **without
+  force**, rebasing once onto commits a maintainer pushed meanwhile and
+  aborting rather than resolving a conflict. It replies to the review threads
+  the agent answered, resolves the ones it says are fully addressed, and
+  posts a round summary. The persona never merges.
+- **Memory.** The agent keeps one durable Flue conversation per pull request
+  (`author:<repositoryId>:<pullNumber>`), so each round sees what earlier
+  rounds tried.
+- **Trust.** Only feedback from maintainers (`OWNER`, `MEMBER`,
+  `COLLABORATOR`) and from this Factory installation's reviewer reaches the
+  agent; everything else is withheld, not merely labelled. Bot activity,
+  including Factory's own replies, never starts a round.
+- **Budget.** A pull request gets `personas.author.maxRounds` rounds (default
+  5), failed rounds included. Then the persona stops and asks for a human.
+  Reassigning it starts a fresh budget, and unassigning it cancels queued
+  rounds. Ownership state lives in the status comment, and it is trusted only
+  when this GitHub App wrote the comment.
+
 ### Release security (`src/release-security/`)
 
 Factory privately reviews same-repository `withastro/astro` release PRs from
@@ -164,6 +202,46 @@ best-effort transcript copies are stored in the `PRIVATE_REPORTS` R2 bucket;
 Flue's private durable agent state also retains the structured model output.
 GitHub receives only a check result and a sanitized comment containing the
 verdict and reviewed SHA. `BLOCK` and `INCOMPLETE` both fail the check.
+
+## Personas
+
+Personas are assignable GitHub identities in front of capabilities. You
+assign an issue or pull request to a persona the way you would to a teammate,
+and the assignment is the signal to act:
+
+| Persona | Signal | Action |
+|---|---|---|
+| `triage` | Issue assigned to it | Runs the triage pipeline, whatever the current label, then unassigns itself. Reassign it to run triage again. |
+| `reviewer` | Review requested from it, or pull request assigned to it | Runs the review capability (a label isn't needed), then withdraws the request or assignment. Re-request it to review again. |
+| `author` | Factory pull request assigned to it | Takes ownership and addresses maintainer feedback and failing checks until unassigned (see [Code author](#code-author-srcauthor)). |
+
+GitHub App accounts can't be assigned or asked for review, so each persona
+is a plain GitHub **user account** with enough repository access to be
+assignable: `astro-triage`, `astro-reviewer`, and `astro-author` by default.
+The accounts are inert handles: Factory never signs in as them and holds no
+credentials for them. Everything is still written by the GitHub App, signed
+with the persona's name.
+
+Personas need no configuration. All three are on by default, except that
+the reviewer only exists where a `review` section configures what it
+reviews with (its skill, model, and vocabulary). A repository can rename a
+persona's account, tune the author, or switch a persona off:
+
+```yaml
+personas:
+  triage:
+    login: my-triage-bot       # defaults to astro-triage
+  reviewer: false              # switch a persona off
+  author:
+    # login: astro-author
+    # skill: .agents/skills/author  # overrides the bundled default skill
+    # model: cloudflare-ai-gateway/claude-opus-4-6
+    # maxRounds: 5
+```
+
+A queued run checks that the persona is still assigned (or still requested)
+when it starts, so withdrawing the assignment cancels it. Assignments to
+anyone who isn't a persona are ignored.
 
 ## Repository configuration
 
@@ -393,7 +471,9 @@ Three deliberate design choices:
   `resolveReviewThread` mutation), Issues (read/write), Pull requests
   (read/write), Checks (read/write), Actions (read/write — dispatching preview
   release workflows), Repository security advisories (read).
-- **Events**: Pull request, Check run, Issues, Issue comment.
+- **Events**: Pull request, Check run, Issues, Issue comment. The code author
+  persona also needs Pull request review, Pull request review comment, Check
+  suite, and Workflow run.
 - **Webhook URL**: `https://<worker>/channels/github/webhook`.
 - **Secrets** (`wrangler secret put` / `.dev.vars`): `GITHUB_APP_ID`,
   `GITHUB_APP_PRIVATE_KEY` (PKCS#8 — convert with

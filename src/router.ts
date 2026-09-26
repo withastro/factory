@@ -17,8 +17,16 @@
  *                                        and known user-account bots such as
  *                                        astrobot-houston, so another bot's
  *                                        comment can never start a triage.
+ * - `issues.assigned`,                → persona assignment (the assignee is
+ *   `pull_request.assigned`,            resolved against the repository's
+ *   `pull_request.review_requested`     configured personas later)
+ * - human activity on a Factory       → code author (whether the author
+ *   pull request: reviews, review        persona owns the pull request is
+ *   comments, comments, and failed       checked later against live state)
+ *   check suites / workflow runs
  */
 
+import { FACTORY_BRANCH_PREFIX } from './author/contracts.ts';
 import { isBotAuthor } from './github/bots.ts';
 import { RELEASE_SECURITY_CHECK_NAMES } from './release-security/checks.ts';
 import {
@@ -44,8 +52,63 @@ export interface ReviewIntentParams {
 	headSha: string;
 }
 
+/** Where a persona assignment landed. */
+export type PersonaSubject =
+	| { type: 'issue'; issueNumber: number }
+	| {
+			type: 'pull_request';
+			pullNumber: number;
+			baseRef: string;
+			baseSha: string;
+			headSha: string;
+	  };
+
+/**
+ * An issue or pull request was assigned to someone, or someone's review was
+ * requested. Whether `login` is a persona is decided later, against the
+ * repository's configuration.
+ */
+export interface PersonaAssignmentIntent {
+	deliveryId: string;
+	installationId: number;
+	repositoryId: number;
+	owner: string;
+	repo: string;
+	defaultBranch: string;
+	repoIsPrivate: boolean;
+	login: string;
+	signal: 'assigned' | 'review-requested';
+	subject: PersonaSubject;
+}
+
+export type AuthorActivity =
+	| 'review'
+	| 'review-comment'
+	| 'comment'
+	| 'check-failure';
+
+/**
+ * Human activity on a pull request the code author persona may own. Ownership
+ * (open, same-repository `factory/` branch, assigned to the persona) is
+ * checked later against live state.
+ */
+export interface AuthorActivityIntent {
+	deliveryId: string;
+	installationId: number;
+	repositoryId: number;
+	owner: string;
+	repo: string;
+	defaultBranch: string;
+	repoIsPrivate: boolean;
+	pullNumber: number;
+	activity: AuthorActivity;
+	actor?: string;
+}
+
 export type Dispatch =
 	| { kind: 'review'; params: ReviewIntentParams }
+	| { kind: 'persona-assignment'; params: PersonaAssignmentIntent }
+	| { kind: 'author-activity'; params: AuthorActivityIntent }
 	| { kind: 'triage'; params: TriageWorkflowParams }
 	| { kind: 'release-security'; params: ReleaseSecurityWorkflowParams }
 	| {
@@ -80,13 +143,29 @@ interface WebhookPayload {
 	installation?: { id: number };
 	repository?: WebhookRepository;
 	label?: { name: string };
+	sender?: WebhookUser;
+	assignee?: WebhookUser | null;
+	requested_reviewer?: WebhookUser;
 	pull_request?: {
 		number: number;
 		html_url?: string;
 		title?: string;
 		body?: string | null;
+		assignees?: WebhookUser[] | null;
 		base: { ref: string; sha: string; repo?: { full_name?: string } };
 		head: { ref?: string; sha: string; repo?: { full_name?: string } };
+	};
+	review?: { user?: WebhookUser | null; state?: string };
+	check_suite?: {
+		conclusion?: string | null;
+		head_branch?: string | null;
+		pull_requests?: Array<{ number?: number }>;
+	};
+	workflow_run?: {
+		conclusion?: string | null;
+		head_branch?: string | null;
+		head_repository?: { full_name?: string } | null;
+		pull_requests?: Array<{ number?: number }>;
 	};
 	check_run?: {
 		name?: string;
@@ -98,10 +177,21 @@ interface WebhookPayload {
 	issue?: {
 		number: number;
 		pull_request?: unknown;
+		assignees?: WebhookUser[] | null;
 	};
 	comment?: {
-		user?: { login?: string; type?: string };
+		user?: WebhookUser | null;
 	};
+}
+
+interface WebhookUser {
+	login?: string;
+	type?: string;
+}
+
+/** GitHub App accounts, plus user accounts known to be bots. */
+function isBot(user: WebhookUser | null | undefined): boolean {
+	return user?.type === 'Bot' || isBotAuthor(user?.login);
 }
 
 export function routeDelivery(
@@ -135,6 +225,26 @@ export function routeDelivery(
 
 	const rerequest = routeReleaseSecurityRerequest(eventName, payload, base);
 	if (rerequest) return rerequest;
+
+	const repositoryContext = {
+		...base,
+		defaultBranch: repository.default_branch,
+		repoIsPrivate: repository.private,
+	};
+
+	const assignment = routePersonaAssignment(
+		eventName,
+		payload,
+		repositoryContext,
+	);
+	if (assignment) return assignment;
+
+	const authorActivity = routeAuthorActivity(
+		eventName,
+		payload,
+		repositoryContext,
+	);
+	if (authorActivity) return authorActivity;
 
 	if (eventName === 'pull_request' && payload.action === 'labeled') {
 		const pull = payload.pull_request;
@@ -183,12 +293,7 @@ export function routeDelivery(
 		if (!issue) {
 			return { kind: 'none', reason: 'The comment delivery has no issue.' };
 		}
-		if (issue.pull_request) {
-			return {
-				kind: 'none',
-				reason: 'The comment is on a pull request, not an issue.',
-			};
-		}
+		// Pull request comments were routed to the author capability above.
 		const commentAuthor = payload.comment?.user?.login;
 		if (payload.comment?.user?.type === 'Bot' || isBotAuthor(commentAuthor)) {
 			return {
@@ -213,6 +318,229 @@ export function routeDelivery(
 		kind: 'none',
 		reason: `Unhandled event: ${eventName}.${payload.action ?? ''}`,
 	};
+}
+
+type RepositoryContext = Pick<
+	PersonaAssignmentIntent,
+	| 'deliveryId'
+	| 'installationId'
+	| 'repositoryId'
+	| 'owner'
+	| 'repo'
+	| 'defaultBranch'
+	| 'repoIsPrivate'
+>;
+
+function routePersonaAssignment(
+	eventName: string,
+	payload: WebhookPayload,
+	context: RepositoryContext,
+): Dispatch | undefined {
+	if (eventName === 'issues' && payload.action === 'assigned') {
+		if (!payload.issue) {
+			return { kind: 'none', reason: 'The issues delivery has no issue.' };
+		}
+		return personaAssignment(payload.assignee, context, 'assigned', {
+			type: 'issue',
+			issueNumber: payload.issue.number,
+		});
+	}
+
+	if (
+		eventName === 'pull_request' &&
+		(payload.action === 'assigned' || payload.action === 'review_requested')
+	) {
+		const pull = payload.pull_request;
+		if (!pull) {
+			return {
+				kind: 'none',
+				reason: `The ${payload.action} delivery is missing pull request data.`,
+			};
+		}
+		const assigned = payload.action === 'assigned';
+		// A team review request has no `requested_reviewer`; personas are users.
+		return personaAssignment(
+			assigned ? payload.assignee : payload.requested_reviewer,
+			context,
+			assigned ? 'assigned' : 'review-requested',
+			{
+				type: 'pull_request',
+				pullNumber: pull.number,
+				baseRef: pull.base.ref,
+				baseSha: pull.base.sha,
+				headSha: pull.head.sha,
+			},
+		);
+	}
+}
+
+function personaAssignment(
+	user: WebhookUser | null | undefined,
+	context: RepositoryContext,
+	signal: PersonaAssignmentIntent['signal'],
+	subject: PersonaSubject,
+): Dispatch {
+	const login = user?.login;
+	if (!login) {
+		return {
+			kind: 'none',
+			reason: `The ${signal} delivery names no user.`,
+		};
+	}
+	if (isBot(user)) {
+		return { kind: 'none', reason: `${signal} to a bot (${login}).` };
+	}
+	return {
+		kind: 'persona-assignment',
+		params: { ...context, login, signal, subject },
+	};
+}
+
+const FAILED_CONCLUSIONS = new Set(['failure', 'timed_out']);
+
+function routeAuthorActivity(
+	eventName: string,
+	payload: WebhookPayload,
+	context: RepositoryContext,
+): Dispatch | undefined {
+	const activity = (
+		pullNumber: number,
+		kind: AuthorActivity,
+		actor?: string,
+	): Dispatch => ({
+		kind: 'author-activity',
+		params: {
+			...context,
+			pullNumber,
+			activity: kind,
+			...(actor ? { actor } : {}),
+		},
+	});
+
+	if (
+		(eventName === 'pull_request_review' && payload.action === 'submitted') ||
+		(eventName === 'pull_request_review_comment' &&
+			payload.action === 'created')
+	) {
+		const pull = payload.pull_request;
+		const author =
+			eventName === 'pull_request_review'
+				? payload.review?.user
+				: payload.comment?.user;
+		if (!pull) {
+			return {
+				kind: 'none',
+				reason: 'The review delivery has no pull request.',
+			};
+		}
+		// Bot feedback — including Factory's own replies and reviews — never
+		// starts the author, so the persona can't feed itself.
+		if (isBot(author)) {
+			return {
+				kind: 'none',
+				reason: `Review activity from bot (${author?.login ?? 'unknown'}).`,
+			};
+		}
+		if (!isOwnableFactoryPull(pull)) {
+			return {
+				kind: 'none',
+				reason: 'Review activity on a pull request no persona can own.',
+			};
+		}
+		return activity(
+			pull.number,
+			eventName === 'pull_request_review' ? 'review' : 'review-comment',
+			author?.login,
+		);
+	}
+
+	if (eventName === 'issue_comment' && payload.action === 'created') {
+		const issue = payload.issue;
+		// Comments on issues belong to triage; only pull request comments here.
+		if (!issue?.pull_request) return;
+		const author = payload.comment?.user;
+		if (isBot(author)) {
+			return {
+				kind: 'none',
+				reason: `Comment from bot (${author?.login ?? 'unknown'}).`,
+			};
+		}
+		// The comment payload omits the head branch; an unassigned pull request
+		// can't be owned, which filters out nearly every other comment cheaply.
+		if (!issue.assignees?.length) {
+			return {
+				kind: 'none',
+				reason: 'The comment is on an unassigned pull request.',
+			};
+		}
+		return activity(issue.number, 'comment', author?.login);
+	}
+
+	if (eventName === 'check_suite' && payload.action === 'completed') {
+		const suite = payload.check_suite;
+		return failedRun(
+			suite?.conclusion,
+			suite?.head_branch,
+			suite?.pull_requests,
+			true,
+			activity,
+		);
+	}
+
+	if (eventName === 'workflow_run' && payload.action === 'completed') {
+		const run = payload.workflow_run;
+		return failedRun(
+			run?.conclusion,
+			run?.head_branch,
+			run?.pull_requests,
+			run?.head_repository?.full_name === `${context.owner}/${context.repo}`,
+			activity,
+		);
+	}
+}
+
+function failedRun(
+	conclusion: string | null | undefined,
+	headBranch: string | null | undefined,
+	pullRequests: Array<{ number?: number }> | undefined,
+	sameRepository: boolean,
+	activity: (pullNumber: number, kind: AuthorActivity) => Dispatch,
+): Dispatch {
+	if (!conclusion || !FAILED_CONCLUSIONS.has(conclusion)) {
+		return {
+			kind: 'none',
+			reason: `Checks concluded ${conclusion ?? 'unknown'}.`,
+		};
+	}
+	if (!sameRepository || !headBranch?.startsWith(FACTORY_BRANCH_PREFIX)) {
+		return {
+			kind: 'none',
+			reason: 'Failed checks are not on a Factory branch.',
+		};
+	}
+	const pullNumber = pullRequests?.find(
+		(pull) => typeof pull.number === 'number' && pull.number > 0,
+	)?.number;
+	if (!pullNumber) {
+		return { kind: 'none', reason: 'Failed checks have no pull request.' };
+	}
+	return activity(pullNumber, 'check-failure');
+}
+
+/**
+ * A pull request the author persona could own: an assigned, same-repository
+ * pull request from a Factory branch. Assignment to the persona itself is
+ * checked against configuration later.
+ */
+function isOwnableFactoryPull(
+	pull: NonNullable<WebhookPayload['pull_request']>,
+): boolean {
+	return (
+		(pull.assignees?.length ?? 0) > 0 &&
+		(pull.head.ref ?? '').startsWith(FACTORY_BRANCH_PREFIX) &&
+		pull.head.repo?.full_name !== undefined &&
+		pull.head.repo.full_name === pull.base.repo?.full_name
+	);
 }
 
 function routeReleaseSecurityPullRequest(
