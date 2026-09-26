@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
 	DEFAULT_AUTHOR_MAX_ROUNDS,
+	DEFAULT_PERSONA_LOGINS,
+	defaultFactoryConfig,
 	parseFactoryConfig,
 } from '../src/config.ts';
 import { CODE_MODEL } from '../src/models.ts';
@@ -55,8 +57,59 @@ personas:
 		});
 	});
 
-	it('leaves personas off when none are configured', () => {
-		expect(parseFactoryConfig('version: 1\n').personas).toBeUndefined();
+	it('defaults to the Astro persona accounts without configuration', () => {
+		expect(defaultFactoryConfig().personas).toEqual({
+			triage: { login: DEFAULT_PERSONA_LOGINS.triage },
+			// No review section, so there is nothing for a reviewer to run.
+			reviewer: undefined,
+			author: {
+				login: DEFAULT_PERSONA_LOGINS.author,
+				skill: undefined,
+				model: CODE_MODEL,
+				maxRounds: DEFAULT_AUTHOR_MAX_ROUNDS,
+			},
+		});
+		expect(parseFactoryConfig('version: 1\n').personas).toEqual(
+			defaultFactoryConfig().personas,
+		);
+	});
+
+	it('enables the default reviewer when review is configured', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+review:
+  trigger:
+    label: ai-review
+`).personas.reviewer,
+		).toEqual({ login: DEFAULT_PERSONA_LOGINS.reviewer });
+	});
+
+	it('overrides a login and keeps the other defaults', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+personas:
+  triage:
+    login: my-triage
+  author:
+    maxRounds: 2
+`).personas,
+		).toMatchObject({
+			triage: { login: 'my-triage' },
+			author: { login: DEFAULT_PERSONA_LOGINS.author, maxRounds: 2 },
+		});
+	});
+
+	it('switches personas off with false', () => {
+		expect(
+			parseFactoryConfig(`
+version: 1
+personas:
+  triage: false
+  author: false
+`).personas,
+		).toEqual({ triage: undefined, reviewer: undefined, author: undefined });
 	});
 
 	it('rejects personas sharing a login', () => {

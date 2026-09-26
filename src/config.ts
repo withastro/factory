@@ -200,22 +200,36 @@ const personaLoginSchema = v.pipe(
 
 export const DEFAULT_AUTHOR_MAX_ROUNDS = 5;
 
+/**
+ * The GitHub accounts personas answer to when a repository doesn't name its
+ * own. Factory is tuned for the Astro repository, so these are Astro's persona
+ * accounts.
+ */
+export const DEFAULT_PERSONA_LOGINS = {
+	triage: 'astro-triage',
+	reviewer: 'astro-reviewer',
+	author: 'astro-author',
+} as const;
+
+/** `false` switches a persona off; an object overrides its defaults. */
+function personaOverride<T extends v.ObjectEntries>(entries: T) {
+	return v.optional(v.union([v.literal(false), v.object({ ...entries })]));
+}
+
 const factoryConfigSchema = v.object({
 	version: v.literal(1),
 	personas: v.optional(
 		v.object({
-			triage: v.optional(v.object({ login: personaLoginSchema })),
-			reviewer: v.optional(v.object({ login: personaLoginSchema })),
-			author: v.optional(
-				v.object({
-					login: personaLoginSchema,
-					skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
-					model: v.optional(modelSchema),
-					maxRounds: v.optional(
-						v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(20)),
-					),
-				}),
-			),
+			triage: personaOverride({ login: v.optional(personaLoginSchema) }),
+			reviewer: personaOverride({ login: v.optional(personaLoginSchema) }),
+			author: personaOverride({
+				login: v.optional(personaLoginSchema),
+				skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+				model: v.optional(modelSchema),
+				maxRounds: v.optional(
+					v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(20)),
+				),
+			}),
 		}),
 	),
 	adversary: v.optional(
@@ -402,7 +416,12 @@ export interface AuthorPersonaConfig extends PersonaConfig {
  * Personas are assignable identities in front of capabilities: assigning an
  * issue to the triage persona runs triage, requesting review from the
  * reviewer persona runs review, and assigning a Factory pull request to the
- * author persona hands its ownership to Factory. Every persona is opt-in.
+ * author persona hands its ownership to Factory.
+ *
+ * Every persona is on by default under {@link DEFAULT_PERSONA_LOGINS}, except
+ * that the reviewer needs a review section to review with. A repository can
+ * rename a persona's login, tune the author, or switch any persona off with
+ * `false`. `undefined` means the persona is off.
  */
 export interface PersonasConfig {
 	triage: PersonaConfig | undefined;
@@ -411,8 +430,7 @@ export interface PersonasConfig {
 }
 
 export interface FactoryConfig {
-	/** Absent when the repository configures no personas. */
-	personas?: PersonasConfig;
+	personas: PersonasConfig;
 	adversary: AdversaryConfig | undefined;
 	review: ReviewConfig | undefined;
 	triage: TriageConfig;
@@ -421,6 +439,7 @@ export interface FactoryConfig {
 /** Configuration used when the repository has no factory.yml at all. */
 export function defaultFactoryConfig(): FactoryConfig {
 	return {
+		personas: parsePersonas(undefined, false),
 		adversary: undefined,
 		review: undefined,
 		triage: {
@@ -448,14 +467,9 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 	) {
 		throw new Error('Adversary and review trigger labels must differ.');
 	}
-	const personas = parsePersonas(config.personas);
-	if (personas?.reviewer && !config.review) {
-		throw new Error(
-			'The reviewer persona requires a review section, which configures how it reviews.',
-		);
-	}
+	const personas = parsePersonas(config.personas, config.review !== undefined);
 	return {
-		...(personas ? { personas } : {}),
+		personas,
 		adversary: config.adversary
 			? {
 					trigger: config.adversary.trigger,
@@ -519,21 +533,37 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 
 function parsePersonas(
 	input: v.InferOutput<typeof factoryConfigSchema>['personas'],
-): PersonasConfig | undefined {
-	if (!input) return undefined;
+	reviewConfigured: boolean,
+): PersonasConfig {
+	const triage = input?.triage;
+	const reviewer = input?.reviewer;
+	const author = input?.author;
+	if (reviewer && !reviewConfigured) {
+		throw new Error(
+			'The reviewer persona requires a review section, which configures how it reviews.',
+		);
+	}
 	const personas: PersonasConfig = {
-		triage: input.triage ? { login: input.triage.login } : undefined,
-		reviewer: input.reviewer ? { login: input.reviewer.login } : undefined,
-		author: input.author
-			? {
-					login: input.author.login,
-					skill: input.author.skill
-						? validateSkillDirectory(input.author.skill)
-						: undefined,
-					model: input.author.model ?? CODE_MODEL,
-					maxRounds: input.author.maxRounds ?? DEFAULT_AUTHOR_MAX_ROUNDS,
-				}
-			: undefined,
+		triage:
+			triage === false
+				? undefined
+				: { login: triage?.login ?? DEFAULT_PERSONA_LOGINS.triage },
+		// The default reviewer only exists where there is a review to run.
+		reviewer:
+			reviewer === false || !reviewConfigured
+				? undefined
+				: { login: reviewer?.login ?? DEFAULT_PERSONA_LOGINS.reviewer },
+		author:
+			author === false
+				? undefined
+				: {
+						login: author?.login ?? DEFAULT_PERSONA_LOGINS.author,
+						skill: author?.skill
+							? validateSkillDirectory(author.skill)
+							: undefined,
+						model: author?.model ?? CODE_MODEL,
+						maxRounds: author?.maxRounds ?? DEFAULT_AUTHOR_MAX_ROUNDS,
+					},
 	};
 	const logins = [personas.triage, personas.reviewer, personas.author]
 		.filter((persona) => persona !== undefined)

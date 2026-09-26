@@ -26,6 +26,16 @@ review:
   skill: .agents/skills/astro-review
 `),
 		).toEqual({
+			personas: {
+				triage: { login: 'astro-triage' },
+				reviewer: { login: 'astro-reviewer' },
+				author: {
+					login: 'astro-author',
+					skill: undefined,
+					model: CODE_MODEL,
+					maxRounds: 5,
+				},
+			},
 			adversary: undefined,
 			review: {
 				trigger: { label: 'ai-review' },

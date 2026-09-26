@@ -2,9 +2,10 @@
  * Personas: assignable GitHub identities in front of Factory capabilities.
  *
  * A persona is not a separate kind of agent. It is an addressing layer: a
- * GitHub user account (configured in `.github/factory.yml`) that maintainers
- * assign issues and pull requests to, or request reviews from, and the
- * capability that assignment starts.
+ * GitHub user account (`astro-triage`, `astro-reviewer`, `astro-author` by
+ * default; overridable in `.github/factory.yml`) that maintainers assign
+ * issues and pull requests to, or request reviews from, and the capability
+ * that assignment starts.
  *
  * - triage   — assigning an issue runs the triage pipeline on it.
  * - reviewer — requesting its review (or assigning it) on a pull request runs

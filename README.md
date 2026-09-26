@@ -216,22 +216,24 @@ and the assignment is the signal to act:
 | `author` | Factory pull request assigned to it | Takes ownership and addresses maintainer feedback and failing checks until unassigned (see [Code author](#code-author-srcauthor)). |
 
 GitHub App accounts can't be assigned or asked for review, so each persona
-is a plain GitHub **user account** (for example `astro-triage`,
-`astro-reviewer`, `astro-author`) with enough repository access to be
-assignable. The accounts are inert handles: Factory never signs in as them
-and holds no credentials for them. Everything is still written by the GitHub
-App, signed with the persona's name. Personas are opt-in per repository, and
-the reviewer persona uses the `review` section's skill, model, and
-vocabulary:
+is a plain GitHub **user account** with enough repository access to be
+assignable: `astro-triage`, `astro-reviewer`, and `astro-author` by default.
+The accounts are inert handles: Factory never signs in as them and holds no
+credentials for them. Everything is still written by the GitHub App, signed
+with the persona's name.
+
+Personas need no configuration. All three are on by default, except that
+the reviewer only exists where a `review` section configures what it
+reviews with (its skill, model, and vocabulary). A repository can rename a
+persona's account, tune the author, or switch a persona off:
 
 ```yaml
 personas:
   triage:
-    login: astro-triage
-  reviewer:
-    login: astro-reviewer      # requires a review section
+    login: my-triage-bot       # defaults to astro-triage
+  reviewer: false              # switch a persona off
   author:
-    login: astro-author
+    # login: astro-author
     # skill: .agents/skills/author  # overrides the bundled default skill
     # model: cloudflare-ai-gateway/claude-opus-4-6
     # maxRounds: 5
@@ -239,7 +241,7 @@ personas:
 
 A queued run checks that the persona is still assigned (or still requested)
 when it starts, so withdrawing the assignment cancels it. Assignments to
-anyone who isn't a configured persona are ignored.
+anyone who isn't a persona are ignored.
 
 ## Repository configuration
 
