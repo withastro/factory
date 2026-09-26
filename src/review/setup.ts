@@ -6,13 +6,14 @@
  */
 
 import {
+	type FactoryConfig,
 	loadFactoryConfig,
 	REPOSITORY_CONFIG_PATHS,
-	type ReviewConfig,
 } from '../config.ts';
 import type { InstallationClient } from '../github/client.ts';
 import { ensureLabelExists } from '../github/issues.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
+import { includesPersona, isPersona } from '../personas/personas.ts';
 import type { LabelAppearance } from '../triage/labels.ts';
 import type { ReviewAgentInput, ReviewWorkflowParams } from './contracts.ts';
 import { defaultReviewSkill } from './default-skill.ts';
@@ -31,8 +32,36 @@ export async function matchesReviewTrigger(
 	client: InstallationClient,
 	trigger: ReviewWorkflowParams,
 ): Promise<boolean> {
-	const config = await loadReviewConfig(client, trigger);
-	return config?.trigger.label === trigger.label;
+	const { config } = await loadFactoryConfig(
+		client,
+		trigger.owner,
+		trigger.repo,
+		trigger.configurationSha,
+	);
+	return triggerMismatch(config, trigger) === undefined;
+}
+
+/**
+ * Why `trigger` doesn't match the configuration, or undefined when it does.
+ * A label must equal the configured review label; a persona trigger must name
+ * the configured reviewer persona, which itself requires a review section.
+ */
+function triggerMismatch(
+	config: FactoryConfig,
+	trigger: ReviewWorkflowParams,
+): string | undefined {
+	const review = config.review;
+	if (review === undefined) {
+		return `No review capability is configured in ${REPOSITORY_CONFIG_PATHS[0]} at the target branch snapshot.`;
+	}
+	if (trigger.persona) {
+		return isPersona(config.personas, 'reviewer', trigger.persona.login)
+			? undefined
+			: `${trigger.persona.login} is not the configured reviewer persona.`;
+	}
+	return review.trigger.label === trigger.label
+		? undefined
+		: `Label "${trigger.label}" does not match configured label "${review.trigger.label}".`;
 }
 
 export async function loadReviewSetup(
@@ -55,37 +84,54 @@ export async function loadReviewSetup(
 		};
 	}
 
-	const config = await loadReviewConfig(client, trigger);
-	if (config === undefined) {
-		return {
-			outcome: 'ignored',
-			reason: `No review capability is configured in ${REPOSITORY_CONFIG_PATHS[0]} at the target branch snapshot.`,
-		};
-	}
-
-	if (config.trigger.label !== trigger.label) {
-		return {
-			outcome: 'ignored',
-			reason: `Label "${trigger.label}" does not match configured label "${config.trigger.label}".`,
-		};
-	}
-	const labels = pull.data.labels.map((label) =>
-		typeof label === 'string' ? label : label.name,
-	);
-	if (!labels.includes(config.trigger.label)) {
-		return {
-			outcome: 'stale',
-			reason: 'The trigger label was removed before review started.',
-		};
-	}
-
-	await ensureLabelExists(
+	const { config: factoryConfig } = await loadFactoryConfig(
 		client,
 		trigger.owner,
 		trigger.repo,
-		config.trigger.label,
-		REVIEW_TRIGGER_LABEL_APPEARANCE,
+		trigger.configurationSha,
 	);
+	const mismatch = triggerMismatch(factoryConfig, trigger);
+	const config = factoryConfig.review;
+	if (mismatch !== undefined || config === undefined) {
+		return { outcome: 'ignored', reason: mismatch ?? 'No review configured.' };
+	}
+
+	if (trigger.persona) {
+		// The request is the trigger: withdrawing it before the queued review
+		// starts cancels the review, just as removing the label does.
+		const persona = trigger.persona;
+		const current =
+			persona.signal === 'review-requested'
+				? (pull.data.requested_reviewers ?? []).map((user) => user.login)
+				: (pull.data.assignees ?? []).map((user) => user.login);
+		if (!includesPersona(factoryConfig.personas, 'reviewer', current)) {
+			return {
+				outcome: 'stale',
+				reason:
+					persona.signal === 'review-requested'
+						? 'The review request was withdrawn before review started.'
+						: 'The reviewer persona was unassigned before review started.',
+			};
+		}
+	} else {
+		const labels = pull.data.labels.map((label) =>
+			typeof label === 'string' ? label : label.name,
+		);
+		if (!labels.includes(config.trigger.label)) {
+			return {
+				outcome: 'stale',
+				reason: 'The trigger label was removed before review started.',
+			};
+		}
+
+		await ensureLabelExists(
+			client,
+			trigger.owner,
+			trigger.repo,
+			config.trigger.label,
+			REVIEW_TRIGGER_LABEL_APPEARANCE,
+		);
+	}
 
 	const skill = config.skill
 		? await readSkillSnapshot(
@@ -110,7 +156,7 @@ export async function loadReviewSetup(
 			headSha: trigger.headSha,
 			title: pull.data.title,
 			body: pull.data.body ?? '',
-			triggerLabel: config.trigger.label,
+			...(trigger.persona ? {} : { triggerLabel: config.trigger.label }),
 			model: config.model,
 			severities: config.severity,
 			areas: config.areas,
@@ -118,17 +164,4 @@ export async function loadReviewSetup(
 			unresolvedReviewThreads: [],
 		},
 	};
-}
-
-async function loadReviewConfig(
-	client: InstallationClient,
-	trigger: ReviewWorkflowParams,
-): Promise<ReviewConfig | undefined> {
-	const { config } = await loadFactoryConfig(
-		client,
-		trigger.owner,
-		trigger.repo,
-		trigger.configurationSha,
-	);
-	return config.review;
 }

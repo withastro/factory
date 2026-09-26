@@ -183,8 +183,41 @@ const commandListSchema = v.union([
 	),
 ]);
 
+/**
+ * A GitHub login a persona answers to. Personas are addressed by assigning an
+ * issue or pull request to this account (or requesting its review), so it has
+ * to be a real, assignable user account; GitHub App bot accounts can't be
+ * assigned.
+ */
+const personaLoginSchema = v.pipe(
+	v.string(),
+	v.trim(),
+	v.regex(
+		/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/,
+		'A persona login must be a GitHub user login.',
+	),
+);
+
+export const DEFAULT_AUTHOR_MAX_ROUNDS = 5;
+
 const factoryConfigSchema = v.object({
 	version: v.literal(1),
+	personas: v.optional(
+		v.object({
+			triage: v.optional(v.object({ login: personaLoginSchema })),
+			reviewer: v.optional(v.object({ login: personaLoginSchema })),
+			author: v.optional(
+				v.object({
+					login: personaLoginSchema,
+					skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+					model: v.optional(modelSchema),
+					maxRounds: v.optional(
+						v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(20)),
+					),
+				}),
+			),
+		}),
+	),
 	adversary: v.optional(
 		v.object({
 			trigger: v.object({ label: labelNameSchema }),
@@ -343,7 +376,43 @@ export interface TriageConfig {
 	labels: TriageLabelConfig;
 }
 
+export interface PersonaConfig {
+	/** The assignable GitHub user account that addresses this persona. */
+	login: string;
+}
+
+/**
+ * The code author persona: owns Factory-created pull requests assigned to it,
+ * addressing review feedback and failing checks. It reuses the triage
+ * section's install and build commands to bootstrap its checkout.
+ */
+export interface AuthorPersonaConfig extends PersonaConfig {
+	/** Repository skill override; the bundled default skill is used when absent. */
+	skill: string | undefined;
+	/** `<provider>/<model>` for the code author agent. */
+	model: string;
+	/**
+	 * Feedback rounds the persona runs on one pull request before it stops and
+	 * asks for a human. Reassigning the persona starts a fresh budget.
+	 */
+	maxRounds: number;
+}
+
+/**
+ * Personas are assignable identities in front of capabilities: assigning an
+ * issue to the triage persona runs triage, requesting review from the
+ * reviewer persona runs review, and assigning a Factory pull request to the
+ * author persona hands its ownership to Factory. Every persona is opt-in.
+ */
+export interface PersonasConfig {
+	triage: PersonaConfig | undefined;
+	reviewer: PersonaConfig | undefined;
+	author: AuthorPersonaConfig | undefined;
+}
+
 export interface FactoryConfig {
+	/** Absent when the repository configures no personas. */
+	personas?: PersonasConfig;
 	adversary: AdversaryConfig | undefined;
 	review: ReviewConfig | undefined;
 	triage: TriageConfig;
@@ -379,7 +448,14 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 	) {
 		throw new Error('Adversary and review trigger labels must differ.');
 	}
+	const personas = parsePersonas(config.personas);
+	if (personas?.reviewer && !config.review) {
+		throw new Error(
+			'The reviewer persona requires a review section, which configures how it reviews.',
+		);
+	}
 	return {
+		...(personas ? { personas } : {}),
 		adversary: config.adversary
 			? {
 					trigger: config.adversary.trigger,
@@ -439,6 +515,33 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 			labels: { ...DEFAULT_TRIAGE_LABELS, ...config.triage?.labels },
 		},
 	};
+}
+
+function parsePersonas(
+	input: v.InferOutput<typeof factoryConfigSchema>['personas'],
+): PersonasConfig | undefined {
+	if (!input) return undefined;
+	const personas: PersonasConfig = {
+		triage: input.triage ? { login: input.triage.login } : undefined,
+		reviewer: input.reviewer ? { login: input.reviewer.login } : undefined,
+		author: input.author
+			? {
+					login: input.author.login,
+					skill: input.author.skill
+						? validateSkillDirectory(input.author.skill)
+						: undefined,
+					model: input.author.model ?? CODE_MODEL,
+					maxRounds: input.author.maxRounds ?? DEFAULT_AUTHOR_MAX_ROUNDS,
+				}
+			: undefined,
+	};
+	const logins = [personas.triage, personas.reviewer, personas.author]
+		.filter((persona) => persona !== undefined)
+		.map((persona) => persona.login.toLowerCase());
+	if (new Set(logins).size !== logins.length) {
+		throw new Error('Each persona must use a different GitHub login.');
+	}
+	return personas;
 }
 
 /**

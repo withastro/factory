@@ -1,6 +1,8 @@
 import type { Sandbox } from '@cloudflare/sandbox';
 import type { AdversaryWorkflowParams } from './adversary/contracts.ts';
 import type { AdversaryCoordinator } from './adversary/coordinator.ts';
+import type { AuthorWorkflowParams } from './author/contracts.ts';
+import type { AuthorCoordinator } from './author/coordinator.ts';
 import type { ReleaseSecurityWorkflowParams } from './release-security/contracts.ts';
 import type { ReleaseSecurityCoordinator } from './release-security/coordinator.ts';
 import type { ReviewWorkflowParams } from './review/contracts.ts';
@@ -17,6 +19,8 @@ export interface WorkerEnv
 	ADVERSARY_SANDBOX: DurableObjectNamespace<Sandbox>;
 	ADVERSARY_WORKFLOW: Workflow<AdversaryWorkflowParams>;
 	ADVERSARY_ARTIFACTS: R2Bucket;
+	AUTHOR_COORDINATOR: DurableObjectNamespace<AuthorCoordinator>;
+	AUTHOR_WORKFLOW: Workflow<AuthorWorkflowParams>;
 	REVIEW_COORDINATOR: DurableObjectNamespace<ReviewCoordinator>;
 	TRIAGE_COORDINATOR: DurableObjectNamespace<TriageCoordinator>;
 	TRIAGE_SANDBOX: DurableObjectNamespace<Sandbox>;

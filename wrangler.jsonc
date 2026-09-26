@@ -60,6 +60,10 @@
 				"class_name": "Sandbox"
 			},
 			{
+				"name": "AUTHOR_COORDINATOR",
+				"class_name": "AuthorCoordinator"
+			},
+			{
 				"name": "RELEASE_SECURITY_COORDINATOR",
 				"class_name": "ReleaseSecurityCoordinator"
 			},
@@ -84,6 +88,11 @@
 			"name": "factory-triage",
 			"binding": "TRIAGE_WORKFLOW",
 			"class_name": "TriageWorkflow"
+		},
+		{
+			"name": "factory-author",
+			"binding": "AUTHOR_WORKFLOW",
+			"class_name": "AuthorWorkflow"
 		},
 		{
 			"name": "factory-release-security",
@@ -130,6 +139,10 @@
 				"FluePurpleTeamAgent",
 				"AdversaryCoordinator"
 			]
+		},
+		{
+			"tag": "v5",
+			"new_sqlite_classes": ["FlueCodeAuthorAgent", "AuthorCoordinator"]
 		}
 	]
 }

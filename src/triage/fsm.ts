@@ -21,7 +21,7 @@ export type TriageAction =
 	| { type: 'skip'; reason: string };
 
 export interface TriageFsmEvent {
-	action: 'opened' | 'reopened' | 'closed' | 'comment';
+	action: 'opened' | 'reopened' | 'closed' | 'comment' | 'assigned';
 	/** The issue's state *now*, which is not implied by `action`. */
 	issueState: 'open' | 'closed';
 	issueLabels: string[];
@@ -52,8 +52,15 @@ export function route(
 		return { type: 'skip', reason: 'The issue is closed.' };
 	}
 
-	// Issue opened or reopened → run triage.
-	if (event.action === 'opened' || event.action === 'reopened') {
+	// Issue opened or reopened → run triage. Assigning the triage persona is
+	// an explicit maintainer request for a (re-)triage, whatever the current
+	// label; only the failed-attempt cap still applies, checked by the
+	// pipeline itself.
+	if (
+		event.action === 'opened' ||
+		event.action === 'reopened' ||
+		event.action === 'assigned'
+	) {
 		return { type: 'triage' };
 	}
 

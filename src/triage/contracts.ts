@@ -17,8 +17,16 @@ export const triageWorkflowParamsSchema = v.object({
 	repo: nonEmptyString,
 	issueNumber: v.pipe(v.number(), v.integer(), v.minValue(1)),
 	defaultBranch: nonEmptyString,
-	issueAction: v.picklist(['opened', 'reopened', 'closed', 'comment']),
+	issueAction: v.picklist([
+		'opened',
+		'reopened',
+		'closed',
+		'comment',
+		'assigned',
+	]),
 	commentAuthor: v.optional(v.string()),
+	/** For `assigned`: the login the issue was assigned to (the triage persona). */
+	assignee: v.optional(v.string()),
 	/** Private repositories get an authenticated, self-contained clone. */
 	repoIsPrivate: v.optional(v.boolean(), false),
 });
