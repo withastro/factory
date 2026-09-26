@@ -284,31 +284,36 @@ async function dispatchAuthorActivity(
 		credentialsFromWorkerEnv(env),
 		intent.installationId,
 	);
+	const decline = (reason: string) => {
+		logAdmitted(delivery, 'author', 'rejected', reason);
+		return Response.json({ accepted: false, reason });
+	};
+	// Failed checks arrive for every pull request in the repository, so the
+	// cheap "is anyone assigned" test runs before configuration is read.
+	const pull = await client.rest.pulls.get({
+		owner: intent.owner,
+		repo: intent.repo,
+		pull_number: intent.pullNumber,
+	});
+	const assignees = (pull.data.assignees ?? []).map((user) => user.login);
+	if (assignees.length === 0) {
+		return decline('The pull request is not assigned.');
+	}
 	const { config } = await loadFactoryConfig(
 		client,
 		intent.owner,
 		intent.repo,
 		intent.defaultBranch,
 	);
-	const author = config.personas?.author;
-	const decline = (reason: string) => {
-		logAdmitted(delivery, 'author', 'rejected', reason);
-		return Response.json({ accepted: false, reason });
-	};
+	const author = config.personas.author;
 	if (!author) return decline('No author persona is configured.');
 
-	const pull = await client.rest.pulls.get({
-		owner: intent.owner,
-		repo: intent.repo,
-		pull_number: intent.pullNumber,
-	});
 	const ownership = checkOwnership(
 		{
 			state: pull.data.state,
 			isCrossRepository:
 				pull.data.head.repo?.full_name !== pull.data.base.repo.full_name,
-			headRef: pull.data.head.ref,
-			assignees: (pull.data.assignees ?? []).map((user) => user.login),
+			assignees,
 		},
 		author.login,
 	);

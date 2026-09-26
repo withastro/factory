@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CHANGES_REQUESTED_VERDICT_MARKER } from '../src/review/verdict.ts';
 import { routeDelivery } from '../src/router.ts';
 
 const repository = {
@@ -141,22 +142,26 @@ describe('persona assignment routing', () => {
 });
 
 describe('author activity routing', () => {
-	it('routes a human review on an assigned Factory pull request', () => {
+	const review = (
+		user: { login: string; type: string },
+		state: string,
+		extra: Record<string, unknown> = {},
+	) =>
+		routeDelivery(
+			'pull_request_review',
+			{
+				action: 'submitted',
+				installation,
+				repository,
+				pull_request: factoryPull(),
+				review: { user, state, ...extra },
+			},
+			'delivery-1',
+		);
+
+	it('routes requested changes on an assigned pull request', () => {
 		expect(
-			routeDelivery(
-				'pull_request_review',
-				{
-					action: 'submitted',
-					installation,
-					repository,
-					pull_request: factoryPull(),
-					review: {
-						user: { login: 'maintainer', type: 'User' },
-						state: 'changes_requested',
-					},
-				},
-				'delivery-1',
-			),
+			review({ login: 'maintainer', type: 'User' }, 'changes_requested'),
 		).toEqual({
 			kind: 'author-activity',
 			params: {
@@ -168,7 +173,36 @@ describe('author activity routing', () => {
 		});
 	});
 
-	it('routes a human review comment', () => {
+	it("routes the reviewer persona's requested changes, published by the App", () => {
+		expect(
+			review({ login: 'factory[bot]', type: 'Bot' }, 'changes_requested'),
+		).toMatchObject({
+			kind: 'author-activity',
+			params: { activity: 'review', actor: 'factory[bot]' },
+		});
+	});
+
+	it("routes the reviewer persona's comment-review verdict on the App's own pull request", () => {
+		const body = `Summary\n\n${CHANGES_REQUESTED_VERDICT_MARKER}`;
+		expect(
+			review({ login: 'factory[bot]', type: 'Bot' }, 'commented', { body }),
+		).toMatchObject({
+			kind: 'author-activity',
+			params: { activity: 'review' },
+		});
+		// A human can't borrow the marker to turn a comment into a trigger.
+		expect(
+			review({ login: 'maintainer', type: 'User' }, 'commented', { body }).kind,
+		).toBe('none');
+	});
+
+	it('ignores approvals, comment reviews, review comments, and pull request comments', () => {
+		expect(review({ login: 'maintainer', type: 'User' }, 'approved').kind).toBe(
+			'none',
+		);
+		expect(
+			review({ login: 'maintainer', type: 'User' }, 'commented').kind,
+		).toBe('none');
 		expect(
 			routeDelivery(
 				'pull_request_review_comment',
@@ -180,86 +214,67 @@ describe('author activity routing', () => {
 					comment: { user: { login: 'maintainer', type: 'User' } },
 				},
 				'delivery-1',
-			),
-		).toMatchObject({
-			kind: 'author-activity',
-			params: { activity: 'review-comment' },
-		});
-	});
-
-	it('never lets bot feedback start the author', () => {
-		for (const user of [
-			{ login: 'factory[bot]', type: 'Bot' },
-			{ login: 'astrobot-houston', type: 'User' },
-		]) {
-			expect(
-				routeDelivery(
-					'pull_request_review',
-					{
-						action: 'submitted',
-						installation,
-						repository,
-						pull_request: factoryPull(),
-						review: { user, state: 'commented' },
-					},
-					'delivery-1',
-				).kind,
-			).toBe('none');
-		}
-	});
-
-	it('ignores reviews on pull requests no persona can own', () => {
-		for (const pull of [
-			factoryPull({ assignees: [] }),
-			factoryPull({
-				head: {
-					ref: 'feat/thing',
-					sha: 'b'.repeat(40),
-					repo: { full_name: 'withastro/astro' },
-				},
-			}),
-			factoryPull({
-				head: {
-					ref: 'factory/fix-12',
-					sha: 'b'.repeat(40),
-					repo: { full_name: 'someone/astro' },
-				},
-			}),
-		]) {
-			expect(
-				routeDelivery(
-					'pull_request_review',
-					{
-						action: 'submitted',
-						installation,
-						repository,
-						pull_request: pull,
-						review: { user: { login: 'maintainer', type: 'User' } },
-					},
-					'delivery-1',
-				).kind,
-			).toBe('none');
-		}
-	});
-
-	it('routes human comments on assigned pull requests only', () => {
-		const comment = (assignees: Array<{ login: string }>) =>
+			).kind,
+		).toBe('none');
+		// A pull request comment must not fall through to triage either.
+		expect(
 			routeDelivery(
 				'issue_comment',
 				{
 					action: 'created',
 					installation,
 					repository,
-					issue: { number: 789, pull_request: {}, assignees },
+					issue: {
+						number: 789,
+						pull_request: {},
+						assignees: [{ login: 'astro-author' }],
+					},
 					comment: { user: { login: 'maintainer', type: 'User' } },
 				},
 				'delivery-1',
-			);
-		expect(comment([{ login: 'astro-author' }])).toMatchObject({
-			kind: 'author-activity',
-			params: { pullNumber: 789, activity: 'comment', actor: 'maintainer' },
-		});
-		expect(comment([]).kind).toBe('none');
+			).kind,
+		).toBe('none');
+	});
+
+	it('routes requested changes on any same-repository branch, but not forks or unassigned pull requests', () => {
+		const route = (pull: ReturnType<typeof factoryPull>) =>
+			routeDelivery(
+				'pull_request_review',
+				{
+					action: 'submitted',
+					installation,
+					repository,
+					pull_request: pull,
+					review: {
+						user: { login: 'maintainer', type: 'User' },
+						state: 'changes_requested',
+					},
+				},
+				'delivery-1',
+			).kind;
+		expect(
+			route(
+				factoryPull({
+					head: {
+						ref: 'feat/thing',
+						sha: 'b'.repeat(40),
+						repo: { full_name: 'withastro/astro' },
+					},
+				}),
+			),
+		).toBe('author-activity');
+		expect(route(factoryPull({ assignees: [] }))).toBe('none');
+		expect(
+			route(
+				factoryPull({
+					head: {
+						ref: 'feat/thing',
+						sha: 'b'.repeat(40),
+						repo: { full_name: 'someone/astro' },
+					},
+				}),
+			),
+		).toBe('none');
 	});
 
 	it('still routes issue comments to triage', () => {
@@ -278,7 +293,7 @@ describe('author activity routing', () => {
 		).toBe('triage');
 	});
 
-	it('routes failed check suites and workflow runs on Factory branches', () => {
+	it('routes failed check suites and workflow runs on same-repository branches', () => {
 		expect(
 			routeDelivery(
 				'check_suite',
@@ -288,7 +303,7 @@ describe('author activity routing', () => {
 					repository,
 					check_suite: {
 						conclusion: 'failure',
-						head_branch: 'factory/fix-12',
+						head_branch: 'feat/thing',
 						pull_requests: [{ number: 789 }],
 					},
 				},
@@ -320,8 +335,11 @@ describe('author activity routing', () => {
 		});
 	});
 
-	it('ignores passing checks, other branches, and fork workflow runs', () => {
-		const suite = (conclusion: string, head_branch: string) =>
+	it('ignores passing checks, checks without a pull request, and fork workflow runs', () => {
+		const suite = (
+			conclusion: string,
+			pull_requests: Array<{ number: number }>,
+		) =>
 			routeDelivery(
 				'check_suite',
 				{
@@ -330,14 +348,14 @@ describe('author activity routing', () => {
 					repository,
 					check_suite: {
 						conclusion,
-						head_branch,
-						pull_requests: [{ number: 789 }],
+						head_branch: 'feat/thing',
+						pull_requests,
 					},
 				},
 				'delivery-1',
 			).kind;
-		expect(suite('success', 'factory/fix-12')).toBe('none');
-		expect(suite('failure', 'main')).toBe('none');
+		expect(suite('success', [{ number: 789 }])).toBe('none');
+		expect(suite('failure', [])).toBe('none');
 		expect(
 			routeDelivery(
 				'workflow_run',
@@ -347,7 +365,7 @@ describe('author activity routing', () => {
 					repository,
 					workflow_run: {
 						conclusion: 'failure',
-						head_branch: 'factory/fix-12',
+						head_branch: 'feat/thing',
 						head_repository: { full_name: 'someone/astro' },
 						pull_requests: [{ number: 789 }],
 					},

@@ -37,13 +37,30 @@ export interface AuthorWork {
 	threads: FeedbackThread[];
 	/** Failing checks on a head the persona hasn't attempted yet. */
 	failingChecks: FailingCheck[];
-	/** Whether anything here is new since the last round. */
+	/**
+	 * Who requested changes since the last round: the reviews this round
+	 * answers, and whose review to request again when it is done.
+	 */
+	changeRequests: ChangeRequester[];
+	/** Whether there is anything to act on: requested changes or failing checks. */
 	hasNewActivity: boolean;
 }
 
+export interface ChangeRequester {
+	login: string;
+	/** This Factory installation, i.e. the reviewer persona. */
+	factory: boolean;
+}
+
 /**
- * Select this round's work. `state.lastHandledAt === null` (a fresh adoption)
- * treats all outstanding feedback as new.
+ * Select this round's work. A round starts only for requested changes (a
+ * trusted CHANGES_REQUESTED review) or failing checks; comments and threads
+ * are the context the round reads, never a trigger on their own. That keeps
+ * the persona from feeding on its own replies and gives maintainers one
+ * deliberate gesture — "Request changes" — to put it to work.
+ *
+ * `state.lastHandledAt === null` (a fresh adoption) treats all outstanding
+ * feedback as new.
  */
 export function selectAuthorWork(
 	snapshot: PullRequestSnapshot,
@@ -53,8 +70,30 @@ export function selectAuthorWork(
 	const since = state.lastHandledAt;
 	const isNew = (createdAt: string) => since === null || createdAt > since;
 
-	const comments = snapshot.comments
+	const trustedNew = snapshot.comments
 		.filter((comment) => isTrustedAuthor(comment.author))
+		.filter((comment) => isNew(comment.createdAt));
+
+	const changeRequests: ChangeRequester[] = [];
+	for (const review of trustedNew) {
+		if (review.kind !== 'review' || !requestsChanges(review)) {
+			continue;
+		}
+		const requester = {
+			login: review.author.login,
+			factory: review.author.factory,
+		};
+		if (
+			!changeRequests.some(
+				(existing) =>
+					existing.login.toLowerCase() === requester.login.toLowerCase(),
+			)
+		) {
+			changeRequests.push(requester);
+		}
+	}
+
+	const comments = trustedNew
 		// Factory's own top-level comments are its status and reports, not
 		// feedback. Its reviews (the reviewer persona) are feedback.
 		.filter(
@@ -63,7 +102,6 @@ export function selectAuthorWork(
 		// An empty review body is just the container for inline comments, which
 		// arrive as threads.
 		.filter((comment) => comment.body.trim().length > 0)
-		.filter((comment) => isNew(comment.createdAt))
 		.slice(-MAX_FEEDBACK_COMMENTS);
 
 	const threads = snapshot.threads
@@ -81,16 +119,6 @@ export function selectAuthorWork(
 		})
 		.filter((thread) => thread.comments.length > 0);
 
-	// The persona's own replies are Factory-authored and newer than the last
-	// round; they must not count as new activity or it would feed itself.
-	const threadActivity = threads.some((thread) =>
-		thread.comments.some(
-			(comment) =>
-				isNew(comment.createdAt) &&
-				(since === null || !comment.author.factory || isReviewerThread(thread)),
-		),
-	);
-
 	const checks =
 		state.lastCheckSha !== null &&
 		state.lastCheckSha.toLowerCase() === snapshot.headSha.toLowerCase()
@@ -101,18 +129,48 @@ export function selectAuthorWork(
 		comments,
 		threads,
 		failingChecks: checks,
-		hasNewActivity: comments.length > 0 || threadActivity || checks.length > 0,
+		changeRequests,
+		hasNewActivity: changeRequests.length > 0 || checks.length > 0,
 	};
 }
 
+function requestsChanges(review: FeedbackComment): boolean {
+	return review.requestsChanges ?? review.state === 'CHANGES_REQUESTED';
+}
+
 /**
- * A thread opened by Factory's reviewer whose only comment is that opening
- * finding: a new review from the reviewer persona is new work even though it
- * is Factory-authored. Once the persona has replied, the thread has more than
- * one comment and its replies no longer count.
+ * Whose review to request once a round is done, or an empty list for none.
+ *
+ * Everyone whose requested changes the round answered is asked again, even
+ * when the author pushed nothing because it disagreed, so each reviewer can
+ * accept the reasoning or stand firm. The reviewer persona is asked through
+ * its persona account. Any push also asks the reviewer persona, since the
+ * code it last judged has changed; a round that pushed nothing for failing
+ * checks asks no one, so a flaky check never triggers a review of unchanged
+ * code.
  */
-function isReviewerThread(thread: FeedbackThread): boolean {
-	return thread.startedBy.factory && thread.comments.length === 1;
+export function reviewersToRequest(input: {
+	changeRequests: readonly ChangeRequester[];
+	pushed: boolean;
+	reviewerLogin: string | undefined;
+	pullAuthor: string | undefined;
+}): string[] {
+	const logins: string[] = [];
+	const add = (login: string | undefined) => {
+		if (!login) return;
+		const normalized = login.toLowerCase();
+		// GitHub refuses a review request from a pull request's own author.
+		if (input.pullAuthor?.toLowerCase() === normalized) return;
+		if (logins.some((existing) => existing.toLowerCase() === normalized)) {
+			return;
+		}
+		logins.push(login);
+	};
+	for (const requester of input.changeRequests) {
+		add(requester.factory ? input.reviewerLogin : requester.login);
+	}
+	if (input.pushed) add(input.reviewerLogin);
+	return logins;
 }
 
 // ---------- Ownership state marker ----------
@@ -176,7 +234,7 @@ export function formatAuthorFeedback(
 	if (work.threads.length > 0) {
 		sections.push(
 			'## Unresolved review threads',
-			'Reply to a thread with its threadId. Resolve it only when your change fully addresses it.',
+			'Reply to a thread with its threadId. Resolve it only when your change fully addresses it. If you disagree and change nothing for it, set declined: true and explain why; the reviewer will reconsider.',
 		);
 		for (const thread of work.threads) {
 			const location = `${thread.path}${thread.line ? `:${thread.line}` : ''}${thread.isOutdated ? ' (outdated)' : ''}`;
@@ -199,9 +257,12 @@ export function formatAuthorFeedback(
 	if (work.comments.length > 0) {
 		sections.push('## New comments and reviews');
 		for (const comment of work.comments) {
+			const state = requestsChanges(comment)
+				? 'CHANGES_REQUESTED'
+				: comment.state;
 			const kind =
 				comment.kind === 'review'
-					? `review${comment.state ? ` (${comment.state})` : ''}`
+					? `review${state ? ` (${state})` : ''}`
 					: 'comment';
 			sections.push(
 				`**${describeAuthor(comment.author)}** — ${kind}, ${comment.createdAt}:\n\n${comment.body}`,

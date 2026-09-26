@@ -26,7 +26,12 @@ const REVIEW_TRIGGER_LABEL_APPEARANCE: LabelAppearance = {
 export type ReviewSetup =
 	| { outcome: 'ignored'; reason: string }
 	| { outcome: 'stale'; reason: string }
-	| { outcome: 'ready'; agentInput: ReviewAgentInput };
+	| {
+			outcome: 'ready';
+			agentInput: ReviewAgentInput;
+			/** The author persona's login, unassigned on a stand-still. */
+			authorLogin?: string;
+	  };
 
 export async function matchesReviewTrigger(
 	client: InstallationClient,
@@ -145,6 +150,9 @@ export async function loadReviewSetup(
 
 	return {
 		outcome: 'ready',
+		...(factoryConfig.personas.author
+			? { authorLogin: factoryConfig.personas.author.login }
+			: {}),
 		agentInput: {
 			deliveryId: trigger.deliveryId,
 			installationId: trigger.installationId,

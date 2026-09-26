@@ -42,6 +42,7 @@ import {
 	upsertIssueComment,
 } from '../github/issues.ts';
 import { readSkillSnapshot, type SkillSnapshot } from '../github/skill.ts';
+import { handOffNewPullRequest } from '../personas/handoff.ts';
 import { checkPersonaAssignment } from '../personas/personas.ts';
 import { FixVerifier } from './agents/fix-verifier.ts';
 import { RetriageJudge } from './agents/retriage-judge.ts';
@@ -163,6 +164,11 @@ interface ConversationEntry {
 /** Lean, JSON-serializable snapshot persisted as a workflow step result. */
 interface RoutedIssue {
 	triage: TriageConfig;
+	/**
+	 * Persona logins a new fix pull request is handed to. Optional so routed
+	 * results persisted before personas existed still replay.
+	 */
+	handoff?: { authorLogin?: string; reviewerLogin?: string };
 	action: TriageAction;
 	issue: {
 		number: number;
@@ -862,6 +868,13 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 							return created;
 						},
 					);
+					await handOffFixPullRequest(
+						step,
+						client,
+						params,
+						routed,
+						pullRequest.number,
+					);
 				}
 			}
 
@@ -1436,6 +1449,15 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 				return { ...created, created: true };
 			},
 		);
+		if (pullRequest.created) {
+			await handOffFixPullRequest(
+				step,
+				client,
+				params,
+				routed,
+				pullRequest.number,
+			);
+		}
 
 		await step.do('mark fix verified', STEP_RETRIES, async () => {
 			const api = await client();
@@ -1605,6 +1627,14 @@ async function loadAndRoute(
 	return {
 		kind: 'ready',
 		triage: config.triage,
+		handoff: {
+			...(config.personas.author
+				? { authorLogin: config.personas.author.login }
+				: {}),
+			...(config.personas.reviewer
+				? { reviewerLogin: config.personas.reviewer.login }
+				: {}),
+		},
 		action,
 		issue: {
 			number: details.number,
@@ -1678,6 +1708,29 @@ async function runPipelineStep<S extends v.GenericSchema>(
 		},
 	);
 	return value as unknown as v.InferOutput<S>;
+}
+
+/**
+ * Give a fix pull request triage just opened to the personas: the author
+ * persona owns it and the reviewer persona reviews it, which starts the
+ * review loop (see `personas/handoff.ts`).
+ */
+async function handOffFixPullRequest(
+	step: WorkflowStep,
+	client: () => Promise<InstallationClient>,
+	params: TriageWorkflowParams,
+	routed: RoutedIssue,
+	pullNumber: number,
+): Promise<void> {
+	const handoff = routed.handoff;
+	if (!handoff?.authorLogin && !handoff?.reviewerLogin) return;
+	await step.do('hand pull request to personas', STEP_RETRIES, async () =>
+		handOffNewPullRequest(
+			await client(),
+			{ owner: params.owner, repo: params.repo, pullNumber },
+			handoff,
+		),
+	);
 }
 
 async function openFixPullRequest(

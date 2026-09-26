@@ -24,7 +24,7 @@ export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 	useTool({
 		name: 'get_pull_request_context',
 		description:
-			'Read the title, description, immutable commit SHAs, and unresolved threads from the latest prior Factory review.',
+			'Read the title, description, immutable commit SHAs, and unresolved threads from prior Factory reviews.',
 		run() {
 			return {
 				output: {
@@ -51,6 +51,8 @@ export function useGitHubReviewTools(reviewContext: ReviewAgentInput): void {
 							isOutdated: thread.isOutdated,
 							diffHunk: thread.diffHunk,
 							url: thread.url,
+							authorDisputed: thread.authorDisputed ?? false,
+							authorReply: thread.authorReply ?? null,
 						}),
 					),
 				},

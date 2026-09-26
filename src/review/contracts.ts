@@ -31,6 +31,15 @@ export const unresolvedReviewThreadSchema = v.object({
 	url: v.pipe(nonEmptyString, v.maxLength(2_048)),
 	commentUpdatedAt: v.pipe(nonEmptyString, v.maxLength(100)),
 	commentCount: v.pipe(v.number(), v.integer(), v.minValue(1)),
+	/** Severity the finding was published with; null if it can't be read. */
+	severity: v.optional(v.nullable(v.pipe(v.string(), v.maxLength(200))), null),
+	/** The author persona replied that it disagrees and changed nothing. */
+	authorDisputed: v.optional(v.boolean(), false),
+	/** That reply, for the reviewer to weigh. */
+	authorReply: v.optional(
+		v.nullable(v.pipe(v.string(), v.maxLength(MAX_REVIEW_THREAD_BODY_LENGTH))),
+		null,
+	),
 });
 
 export const reviewWorkflowParamsSchema = v.pipe(
@@ -167,6 +176,9 @@ export type ReviewWorkflowOutcome =
 			reviewId: number;
 			reviewUrl: string | null;
 			comments: number;
+			/** Persona reviews: the verdict, and the GitHub event it went out as. */
+			verdict?: 'approve' | 'request-changes' | 'stand-still';
+			event?: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
 	  }
 	| {
 			outcome: 'already-published';

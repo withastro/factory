@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	formatAuthorRoundComment,
 	formatAuthorStatusComment,
+	formatThreadReply,
 } from '../src/author/comments.ts';
 import {
 	type AuthorState,
@@ -18,9 +19,11 @@ import {
 	formatAuthorStateMarker,
 	latestAssignmentAt,
 	parseAuthorState,
+	reviewersToRequest,
 	selectAuthorWork,
 } from '../src/author/feedback.ts';
 import { checkOwnership } from '../src/author/ownership.ts';
+import { AUTHOR_DECLINED_MARKER } from '../src/personas/personas.ts';
 
 const maintainer: FeedbackAuthor = {
 	login: 'maintainer',
@@ -54,6 +57,7 @@ function snapshot(
 		title: 'fix: something',
 		body: '',
 		state: 'open',
+		author: 'factory[bot]',
 		headRef: 'factory/fix-12',
 		headSha: 'b'.repeat(40),
 		baseRef: 'main',
@@ -131,7 +135,50 @@ describe('author feedback selection', () => {
 			[],
 		);
 		expect(work.comments.map((comment) => comment.url)).toEqual(['u1', 'u5']);
-		expect(work.hasNewActivity).toBe(true);
+		// Comments are context; only requested changes or failing checks start
+		// a round.
+		expect(work.hasNewActivity).toBe(false);
+		expect(work.changeRequests).toEqual([]);
+	});
+
+	it('starts a round for trusted requested changes only', () => {
+		const review = (
+			author: FeedbackAuthor,
+			state: string,
+			requestsChanges?: boolean,
+		) => ({
+			kind: 'review' as const,
+			author,
+			state,
+			...(requestsChanges === undefined ? {} : { requestsChanges }),
+			body: 'Please fix.',
+			createdAt: '2026-09-20T13:00:00Z',
+			url: `r-${author.login}-${state}`,
+		});
+		const select = (comments: PullRequestSnapshot['comments']) =>
+			selectAuthorWork(snapshot({ comments }), handled, []);
+
+		expect(
+			select([review(maintainer, 'CHANGES_REQUESTED')]).changeRequests,
+		).toEqual([{ login: 'maintainer', factory: false }]);
+		// The reviewer persona's verdict posted as a comment review.
+		expect(select([review(factory, 'COMMENTED', true)]).changeRequests).toEqual(
+			[{ login: 'factory', factory: true }],
+		);
+		expect(select([review(maintainer, 'APPROVED')]).hasNewActivity).toBe(false);
+		expect(select([review(stranger, 'CHANGES_REQUESTED')]).hasNewActivity).toBe(
+			false,
+		);
+		expect(select([review(otherBot, 'CHANGES_REQUESTED')]).hasNewActivity).toBe(
+			false,
+		);
+		// Two reviews from one reviewer ask them once.
+		expect(
+			select([
+				review(maintainer, 'CHANGES_REQUESTED'),
+				{ ...review(maintainer, 'CHANGES_REQUESTED'), url: 'again' },
+			]).changeRequests,
+		).toHaveLength(1);
 	});
 
 	it('only counts feedback newer than the last handled round', () => {
@@ -245,7 +292,7 @@ describe('author feedback selection', () => {
 		expect(work.hasNewActivity).toBe(false);
 	});
 
-	it("treats a new finding from Factory's reviewer as new activity", () => {
+	it('does not start a round for new review threads alone', () => {
 		const work = selectAuthorWork(
 			snapshot({
 				threads: [
@@ -270,7 +317,8 @@ describe('author feedback selection', () => {
 			handled,
 			[],
 		);
-		expect(work.hasNewActivity).toBe(true);
+		expect(work.threads).toHaveLength(1);
+		expect(work.hasNewActivity).toBe(false);
 	});
 
 	it('attempts failing checks once per head commit', () => {
@@ -365,6 +413,7 @@ describe('author feedback selection', () => {
 						jobId: 7,
 					},
 				],
+				changeRequests: [],
 				hasNewActivity: true,
 			},
 			2,
@@ -419,6 +468,8 @@ describe('author ownership state', () => {
 			push: { kind: 'unchanged' },
 			replies: 0,
 			resolved: 0,
+			declined: 0,
+			reviewersRequested: [],
 		});
 		expect(body).not.toContain(AUTHOR_STATUS_MARKER);
 		expect(parseAuthorState(body)).toBeUndefined();
@@ -442,11 +493,10 @@ describe('author ownership state', () => {
 });
 
 describe('author ownership', () => {
-	it('owns only open, same-repository, assigned Factory branches', () => {
+	it('owns only open, same-repository, assigned pull requests', () => {
 		const base = {
 			state: 'open',
 			isCrossRepository: false,
-			headRef: 'factory/fix-12',
 			assignees: ['Astro-Author'],
 		};
 		expect(checkOwnership(base, 'astro-author')).toBeUndefined();
@@ -456,9 +506,6 @@ describe('author ownership', () => {
 		expect(
 			checkOwnership({ ...base, isCrossRepository: true }, 'astro-author'),
 		).toMatch(/fork/);
-		expect(
-			checkOwnership({ ...base, headRef: 'feat/x' }, 'astro-author'),
-		).toMatch(/not a Factory branch/);
 		expect(checkOwnership({ ...base, assignees: [] }, 'astro-author')).toMatch(
 			/not assigned/,
 		);
@@ -490,5 +537,78 @@ describe('author result validation', () => {
 				],
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe('reviewers to request after a round', () => {
+	const base = {
+		reviewerLogin: 'astro-reviewer',
+		pullAuthor: 'factory[bot]',
+	};
+
+	it('asks the reviewer persona for its own requested changes, even without a push', () => {
+		expect(
+			reviewersToRequest({
+				...base,
+				changeRequests: [{ login: 'factory[bot]', factory: true }],
+				pushed: false,
+			}),
+		).toEqual(['astro-reviewer']);
+	});
+
+	it('asks human reviewers back, but never the pull request author', () => {
+		expect(
+			reviewersToRequest({
+				...base,
+				pullAuthor: 'Contributor',
+				changeRequests: [
+					{ login: 'maintainer', factory: false },
+					{ login: 'contributor', factory: false },
+					{ login: 'factory[bot]', factory: true },
+				],
+				pushed: true,
+			}),
+		).toEqual(['maintainer', 'astro-reviewer']);
+	});
+
+	it("asks the reviewer persona too once a human's requested changes are pushed", () => {
+		const changeRequests = [{ login: 'maintainer', factory: false }];
+		expect(
+			reviewersToRequest({ ...base, changeRequests, pushed: true }),
+		).toEqual(['maintainer', 'astro-reviewer']);
+		expect(
+			reviewersToRequest({ ...base, changeRequests, pushed: false }),
+		).toEqual(['maintainer']);
+	});
+
+	it('asks the reviewer persona after a check fix only when it pushed', () => {
+		expect(
+			reviewersToRequest({ ...base, changeRequests: [], pushed: true }),
+		).toEqual(['astro-reviewer']);
+		expect(
+			reviewersToRequest({ ...base, changeRequests: [], pushed: false }),
+		).toEqual([]);
+		expect(
+			reviewersToRequest({
+				...base,
+				reviewerLogin: undefined,
+				changeRequests: [],
+				pushed: true,
+			}),
+		).toEqual([]);
+	});
+});
+
+describe('author thread replies', () => {
+	it('marks declined replies so the reviewer can see the disagreement', () => {
+		const declined = formatThreadReply('astro-author', 'Disagree: x', true);
+		expect(declined).toContain(AUTHOR_DECLINED_MARKER);
+		expect(formatThreadReply('astro-author', 'Fixed')).not.toContain(
+			AUTHOR_DECLINED_MARKER,
+		);
+		// The model can't forge the marker in an ordinary reply.
+		expect(
+			formatThreadReply('astro-author', AUTHOR_DECLINED_MARKER),
+		).not.toContain(AUTHOR_DECLINED_MARKER);
 	});
 });

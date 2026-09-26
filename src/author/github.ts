@@ -7,6 +7,7 @@
 
 import type { InstallationClient } from '../github/client.ts';
 import { isGitHubStatus } from '../github/content.ts';
+import { CHANGES_REQUESTED_VERDICT_MARKER } from '../review/verdict.ts';
 import type {
 	FailingCheck,
 	FeedbackAuthor,
@@ -27,6 +28,7 @@ const PULL_REQUEST_QUERY = `
 				title
 				body
 				state
+				author { login }
 				headRefName
 				headRefOid
 				baseRefName
@@ -105,6 +107,7 @@ interface PullRequestResponse {
 			title: string;
 			body: string;
 			state: string;
+			author: { login: string } | null;
 			headRefName: string;
 			headRefOid: string;
 			baseRefName: string;
@@ -189,6 +192,11 @@ export async function loadPullRequestSnapshot(
 			kind: 'review',
 			author: feedbackAuthor(review),
 			state: review.state,
+			// Read before truncation: the verdict marker sits at the end.
+			requestsChanges:
+				review.state === 'CHANGES_REQUESTED' ||
+				(review.viewerDidAuthor &&
+					review.body.includes(CHANGES_REQUESTED_VERDICT_MARKER)),
 			body: truncate(review.body, MAX_BODY),
 			createdAt: review.submittedAt,
 			url: review.url,
@@ -226,6 +234,7 @@ export async function loadPullRequestSnapshot(
 		title: pull.title,
 		body: truncate(pull.body, MAX_BODY),
 		state: pull.state.toLowerCase(),
+		author: pull.author?.login ?? null,
 		headRef: pull.headRefName,
 		headSha: pull.headRefOid.toLowerCase(),
 		baseRef: pull.baseRefName,

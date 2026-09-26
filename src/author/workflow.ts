@@ -15,6 +15,7 @@ import {
 } from '../github/client.ts';
 import { upsertIssueComment } from '../github/issues.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
+import { handOffToHuman, requestReviews } from '../personas/handoff.ts';
 import { formatErrorWithCauses } from '../triage/failure.ts';
 import {
 	commitAndPushFastForward,
@@ -32,6 +33,7 @@ import {
 import { CodeAuthor } from './agents/code-author.ts';
 import {
 	type AuthorStatus,
+	formatAuthorHandoffComment,
 	formatAuthorRoundComment,
 	formatAuthorStatusComment,
 	formatThreadReply,
@@ -58,6 +60,7 @@ import {
 	formatAuthorFeedback,
 	latestAssignmentAt,
 	parseAuthorState,
+	reviewersToRequest,
 	selectAuthorWork,
 } from './feedback.ts';
 import {
@@ -85,6 +88,10 @@ const CHECK_LOG_DIR = '/author/checks';
 interface ReadyRound {
 	kind: 'ready';
 	author: AuthorPersonaConfig;
+	/** The reviewer persona's login, asked to review again after a round. */
+	reviewerLogin: string | null;
+	/** Who opened the pull request; GitHub won't request their review. */
+	pullAuthor: string | null;
 	installCommand: string[];
 	buildCommand: string[];
 	/** Every piece of feedback created at or before this instant is in `work`. */
@@ -203,20 +210,35 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 			}
 			return finish({
 				outcome: 'idle',
-				reason: 'No new maintainer feedback or failing checks.',
+				reason: 'No new requested changes or failing checks.',
 			});
 		}
 
-		if (round.state.parked) {
-			return finish({ outcome: 'parked', round: round.state.round });
-		}
-		if (round.state.round >= author.maxRounds) {
+		if (round.state.parked || round.state.round >= author.maxRounds) {
+			// Out of budget with work still arriving: step away rather than keep
+			// going. Unassigning ends ownership, so nothing proceeds until a
+			// maintainer takes over or reassigns the persona for a fresh budget.
+			await step.do('hand off to a human', STEP_RETRIES, async () => {
+				const api = await client();
+				await upsertIssueComment(
+					api,
+					params.owner,
+					params.repo,
+					params.pullNumber,
+					`<!-- factory:author-handoff assigned=${round.state.assignedAt ?? 'unknown'} -->`,
+					formatAuthorHandoffComment({
+						login: author.login,
+						maxRounds: author.maxRounds,
+					}),
+				);
+				await handOffToHuman(api, ref, author.login);
+			});
 			await saveStatus(
-				'parked',
+				'handed off',
 				{ ...round.state, parked: true },
-				{ kind: 'parked' },
+				{ kind: 'handed-off' },
 			);
-			return finish({ outcome: 'parked', round: round.state.round });
+			return finish({ outcome: 'handed-off', round: round.state.round });
 		}
 
 		const roundNumber = round.state.round + 1;
@@ -534,9 +556,11 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 
 		// Replies describe work that only exists once it is pushed. Each reply
 		// is its own step, so a retry never repeats replies already posted.
-		const threadOutcome = { replies: 0, resolved: 0 };
+		const threadOutcome = { replies: 0, resolved: 0, declined: 0 };
 		if (push.kind !== 'failed') {
 			for (const reply of result.threadReplies) {
+				// A declined finding stays open for the reviewer to reconsider.
+				const declined = reply.declined === true;
 				const resolved = await step.do(
 					`reply to review thread ${reply.threadId}`,
 					STEP_RETRIES,
@@ -545,17 +569,41 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 						await replyToReviewThread(
 							api,
 							reply.threadId,
-							formatThreadReply(author.login, reply.body),
+							formatThreadReply(author.login, reply.body, declined),
 						);
-						return reply.resolve
+						return reply.resolve && !declined
 							? resolveReviewThread(api, reply.threadId)
 							: false;
 					},
 				);
 				threadOutcome.replies += 1;
 				if (resolved) threadOutcome.resolved += 1;
+				if (declined) threadOutcome.declined += 1;
 			}
 		}
+
+		// Hand back to the reviewers. Requests come after the replies so the
+		// reviewer sees the author's answers, including any disagreement.
+		const reviewersRequested =
+			push.kind === 'failed'
+				? []
+				: await step.do('request reviews again', STEP_RETRIES, async () =>
+						requestReviews(
+							await client(),
+							{
+								owner: params.owner,
+								repo: params.repo,
+								pullNumber: params.pullNumber,
+							},
+							reviewersToRequest({
+								// Absent from rounds loaded before this field existed.
+								changeRequests: work.changeRequests ?? [],
+								pushed: push.kind === 'pushed',
+								reviewerLogin: round.reviewerLogin ?? undefined,
+								pullAuthor: round.pullAuthor ?? undefined,
+							}),
+						),
+					);
 
 		await step.do('post author round summary', STEP_RETRIES, async () => {
 			const api = await client();
@@ -572,6 +620,7 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 					result,
 					push,
 					...threadOutcome,
+					reviewersRequested,
 				}),
 			);
 		});
@@ -616,7 +665,7 @@ async function loadRound(
 		params.repo,
 		params.defaultBranch,
 	);
-	const author = config.personas?.author;
+	const author = config.personas.author;
 	if (!author) {
 		return {
 			kind: 'ignored',
@@ -657,6 +706,8 @@ async function loadRound(
 	return {
 		kind: 'ready',
 		author,
+		reviewerLogin: config.personas.reviewer?.login ?? null,
+		pullAuthor: snapshot.author,
 		installCommand: config.triage.installCommand,
 		buildCommand: config.triage.buildCommand,
 		snapshotAt,

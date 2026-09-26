@@ -26,7 +26,6 @@
  *   check suites / workflow runs
  */
 
-import { FACTORY_BRANCH_PREFIX } from './author/contracts.ts';
 import { isBotAuthor } from './github/bots.ts';
 import { RELEASE_SECURITY_CHECK_NAMES } from './release-security/checks.ts';
 import {
@@ -37,6 +36,7 @@ import {
 	SMOKE_BRANCH_PREFIX,
 	SMOKE_PR_TITLE,
 } from './release-security/contracts.ts';
+import { CHANGES_REQUESTED_VERDICT_MARKER } from './review/verdict.ts';
 import type { TriageWorkflowParams } from './triage/contracts.ts';
 
 export interface ReviewIntentParams {
@@ -81,16 +81,13 @@ export interface PersonaAssignmentIntent {
 	subject: PersonaSubject;
 }
 
-export type AuthorActivity =
-	| 'review'
-	| 'review-comment'
-	| 'comment'
-	| 'check-failure';
+/** Requested changes, or failed checks, on a pull request. */
+export type AuthorActivity = 'review' | 'check-failure';
 
 /**
- * Human activity on a pull request the code author persona may own. Ownership
- * (open, same-repository `factory/` branch, assigned to the persona) is
- * checked later against live state.
+ * Activity on a pull request the code author persona may own. Ownership
+ * (open, same-repository branch, assigned to the persona) is checked later
+ * against live state.
  */
 export interface AuthorActivityIntent {
 	deliveryId: string;
@@ -155,7 +152,7 @@ interface WebhookPayload {
 		base: { ref: string; sha: string; repo?: { full_name?: string } };
 		head: { ref?: string; sha: string; repo?: { full_name?: string } };
 	};
-	review?: { user?: WebhookUser | null; state?: string };
+	review?: { user?: WebhookUser | null; state?: string; body?: string | null };
 	check_suite?: {
 		conclusion?: string | null;
 		head_branch?: string | null;
@@ -398,6 +395,22 @@ function personaAssignment(
 
 const FAILED_CONCLUSIONS = new Set(['failure', 'timed_out']);
 
+/**
+ * A review requesting changes: GitHub's CHANGES_REQUESTED state, or the
+ * reviewer persona's comment-review verdict on a pull request this App
+ * opened, where GitHub refuses the App a real "request changes". The marker
+ * is trusted only once the workflow confirms this App wrote the review.
+ */
+function requestsChanges(review: WebhookPayload['review']): boolean {
+	const state = review?.state?.toLowerCase();
+	if (state === 'changes_requested') return true;
+	return (
+		state === 'commented' &&
+		isBot(review?.user) &&
+		(review?.body ?? '').includes(CHANGES_REQUESTED_VERDICT_MARKER)
+	);
+}
+
 function routeAuthorActivity(
 	eventName: string,
 	payload: WebhookPayload,
@@ -417,63 +430,52 @@ function routeAuthorActivity(
 		},
 	});
 
-	if (
-		(eventName === 'pull_request_review' && payload.action === 'submitted') ||
-		(eventName === 'pull_request_review_comment' &&
-			payload.action === 'created')
-	) {
+	if (eventName === 'pull_request_review' && payload.action === 'submitted') {
 		const pull = payload.pull_request;
-		const author =
-			eventName === 'pull_request_review'
-				? payload.review?.user
-				: payload.comment?.user;
+		const reviewer = payload.review?.user;
 		if (!pull) {
 			return {
 				kind: 'none',
 				reason: 'The review delivery has no pull request.',
 			};
 		}
-		// Bot feedback — including Factory's own replies and reviews — never
-		// starts the author, so the persona can't feed itself.
-		if (isBot(author)) {
+		// Requested changes are the author's only review signal; comments and
+		// approvals are read as context when a round runs. A bot's review is
+		// let through because the reviewer persona's verdict is published by
+		// this App; the workflow trusts only maintainers and this App.
+		if (!requestsChanges(payload.review)) {
 			return {
 				kind: 'none',
-				reason: `Review activity from bot (${author?.login ?? 'unknown'}).`,
+				reason: `Review state ${payload.review?.state ?? 'unknown'} does not request changes.`,
 			};
 		}
-		if (!isOwnableFactoryPull(pull)) {
+		if (!isOwnablePull(pull)) {
 			return {
 				kind: 'none',
-				reason: 'Review activity on a pull request no persona can own.',
+				reason: 'Requested changes on a pull request no persona can own.',
 			};
 		}
-		return activity(
-			pull.number,
-			eventName === 'pull_request_review' ? 'review' : 'review-comment',
-			author?.login,
-		);
+		return activity(pull.number, 'review', reviewer?.login);
+	}
+
+	if (
+		eventName === 'pull_request_review_comment' &&
+		payload.action === 'created'
+	) {
+		return {
+			kind: 'none',
+			reason: 'Review comments are read when changes are requested.',
+		};
 	}
 
 	if (eventName === 'issue_comment' && payload.action === 'created') {
-		const issue = payload.issue;
-		// Comments on issues belong to triage; only pull request comments here.
-		if (!issue?.pull_request) return;
-		const author = payload.comment?.user;
-		if (isBot(author)) {
-			return {
-				kind: 'none',
-				reason: `Comment from bot (${author?.login ?? 'unknown'}).`,
-			};
-		}
-		// The comment payload omits the head branch; an unassigned pull request
-		// can't be owned, which filters out nearly every other comment cheaply.
-		if (!issue.assignees?.length) {
-			return {
-				kind: 'none',
-				reason: 'The comment is on an unassigned pull request.',
-			};
-		}
-		return activity(issue.number, 'comment', author?.login);
+		// Comments on issues belong to triage. Pull request comments are read
+		// as context when a round runs but never start one themselves.
+		if (!payload.issue?.pull_request) return;
+		return {
+			kind: 'none',
+			reason: 'Pull request comments are read when changes are requested.',
+		};
 	}
 
 	if (eventName === 'check_suite' && payload.action === 'completed') {
@@ -512,10 +514,11 @@ function failedRun(
 			reason: `Checks concluded ${conclusion ?? 'unknown'}.`,
 		};
 	}
-	if (!sameRepository || !headBranch?.startsWith(FACTORY_BRANCH_PREFIX)) {
+	// Fork branches report no pull requests; the channel re-checks ownership.
+	if (!sameRepository || !headBranch) {
 		return {
 			kind: 'none',
-			reason: 'Failed checks are not on a Factory branch.',
+			reason: 'Failed checks are not on a same-repository branch.',
 		};
 	}
 	const pullNumber = pullRequests?.find(
@@ -529,15 +532,14 @@ function failedRun(
 
 /**
  * A pull request the author persona could own: an assigned, same-repository
- * pull request from a Factory branch. Assignment to the persona itself is
- * checked against configuration later.
+ * pull request. Assignment to the persona itself is checked against
+ * configuration later.
  */
-function isOwnableFactoryPull(
+function isOwnablePull(
 	pull: NonNullable<WebhookPayload['pull_request']>,
 ): boolean {
 	return (
 		(pull.assignees?.length ?? 0) > 0 &&
-		(pull.head.ref ?? '').startsWith(FACTORY_BRANCH_PREFIX) &&
 		pull.head.repo?.full_name !== undefined &&
 		pull.head.repo.full_name === pull.base.repo?.full_name
 	);
