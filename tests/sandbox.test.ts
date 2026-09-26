@@ -101,5 +101,13 @@ describe('triage sandbox helpers', () => {
 		expect(
 			redactToken('config Authorization: basic eGhzX3NlY3JldA== rejected'),
 		).toBe('config Authorization: basic *** rejected');
+		expect(
+			redactToken(
+				'fatal: header Authorization: bearer ghs_abc123 rejected',
+			),
+		).toBe('fatal: header Authorization: bearer *** rejected');
+		expect(redactToken('Authorization: token ghp_abc123')).toBe(
+			'Authorization: token ***',
+		);
 	});
 });
