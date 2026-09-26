@@ -15,6 +15,7 @@ import {
 	removeIssueAssignees,
 	removeLabelIfPresent,
 } from '../github/issues.ts';
+import { handOffToHuman } from '../personas/handoff.ts';
 import { PullRequestReviewer } from './agents/pull-request-reviewer.ts';
 import {
 	completeReviewCheck,
@@ -28,12 +29,13 @@ import {
 	reviewWorkflowParamsSchema,
 } from './contracts.ts';
 import {
-	loadLatestUnresolvedReviewThreads,
+	loadUnresolvedFactoryReviewThreads,
 	resolveAddressedReviewThreads,
 } from './follow-up.ts';
 import { publishReview } from './publish.ts';
 import { extractReviewResult, parseReviewResult } from './result.ts';
 import { loadReviewSetup } from './setup.ts';
+import { decideReviewVerdict } from './verdict.ts';
 
 export class ReviewWorkflow extends WorkflowEntrypoint<
 	WorkerEnv,
@@ -100,7 +102,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 		}
 
 		const unresolvedReviewThreads = await step.do(
-			'load unresolved threads from latest Factory review',
+			'load unresolved threads from Factory reviews',
 			{
 				retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
 				timeout: '5 minutes',
@@ -110,7 +112,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 					credentials,
 					trigger.installationId,
 				);
-				return loadLatestUnresolvedReviewThreads(client, {
+				return loadUnresolvedFactoryReviewThreads(client, {
 					owner: trigger.owner,
 					repo: trigger.repo,
 					pullNumber: trigger.pullNumber,
@@ -247,6 +249,17 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 			unresolvedReviewThreads.map((thread) => thread.threadId),
 		);
 
+		// Persona reviews carry a verdict; label-triggered reviews stay plain
+		// comments.
+		const verdict = trigger.persona
+			? decideReviewVerdict({
+					findings: result.findings,
+					severities: agentInput.severities,
+					threads: unresolvedReviewThreads,
+					addressedThreadIds: result.addressedThreadIds,
+				})
+			: undefined;
+
 		const outcome = await step.do(
 			'publish GitHub review',
 			{
@@ -268,6 +281,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 						deliveryId: trigger.deliveryId,
 					},
 					result,
+					verdict,
 				);
 			},
 		);
@@ -302,11 +316,48 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 				},
 			);
 		}
+		if (
+			verdict?.kind === 'stand-still' &&
+			(outcome.outcome === 'published' ||
+				outcome.outcome === 'already-published')
+		) {
+			// The personas disagree; stop the loop so nothing proceeds until a
+			// maintainer takes over.
+			await step.do('hand off to a human', STEP_RETRIES, async () => {
+				const client = await createInstallationClient(
+					credentials,
+					trigger.installationId,
+				);
+				const pull = await client.rest.pulls.get({
+					owner: trigger.owner,
+					repo: trigger.repo,
+					pull_number: trigger.pullNumber,
+				});
+				const authorLogin = setup.authorLogin?.toLowerCase();
+				const assigned = (pull.data.assignees ?? []).find(
+					(user) => user.login.toLowerCase() === authorLogin,
+				);
+				await handOffToHuman(
+					client,
+					{
+						owner: trigger.owner,
+						repo: trigger.repo,
+						pullNumber: trigger.pullNumber,
+					},
+					assigned?.login,
+				);
+			});
+		}
 		await finishCheck();
 		await finishCoordination();
 		return outcome;
 	}
 }
+
+const STEP_RETRIES = {
+	retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+	timeout: '5 minutes',
+} as const;
 
 async function withdrawReviewerPersona(
 	client: InstallationClient,

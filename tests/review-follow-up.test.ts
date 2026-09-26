@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { InstallationClient } from '../src/github/client.ts';
+import { AUTHOR_DECLINED_MARKER } from '../src/personas/personas.ts';
 import {
 	MAX_REVIEW_THREAD_SNAPSHOT_BYTES,
 	type UnresolvedReviewThread,
 } from '../src/review/contracts.ts';
 import { reviewMarker } from '../src/review/diff.ts';
 import {
-	loadLatestUnresolvedReviewThreads,
+	loadUnresolvedFactoryReviewThreads,
 	resolveAddressedReviewThreads,
 } from '../src/review/follow-up.ts';
 
@@ -42,9 +43,12 @@ function thread(
 		canResolve?: boolean;
 		body?: string;
 		diffHunk?: string;
+		latest?: { body: string; viewerDidAuthor: boolean };
+		totalCount?: number;
 	} = {},
 ) {
 	return {
+		...(options.latest ? { latest: { nodes: [options.latest] } } : {}),
 		id,
 		isResolved: options.resolved ?? false,
 		isOutdated: false,
@@ -58,7 +62,7 @@ function thread(
 		startDiffSide: null,
 		subjectType: 'LINE',
 		comments: {
-			totalCount: 1,
+			totalCount: options.totalCount ?? 1,
 			nodes: [
 				{
 					id: `comment-${id}`,
@@ -95,6 +99,9 @@ function snapshot(
 		url: 'https://github.com/withastro/astro/pull/123#discussion_latest',
 		commentUpdatedAt: '2026-08-21T12:00:00Z',
 		commentCount: 1,
+		severity: null,
+		authorDisputed: false,
+		authorReply: null,
 		...overrides,
 	};
 }
@@ -135,7 +142,7 @@ function currentThread(
 }
 
 describe('review follow-up loading', () => {
-	it('loads only unresolved threads from the latest prior Factory review', async () => {
+	it("loads unresolved threads from every one of this installation's reviews", async () => {
 		const graphql = vi.fn(async (query: string) => {
 			if (query.includes('LatestFactoryReviews')) {
 				return {
@@ -172,14 +179,79 @@ describe('review follow-up loading', () => {
 		const client = { graphql } as unknown as InstallationClient;
 
 		await expect(
-			loadLatestUnresolvedReviewThreads(client, input),
+			loadUnresolvedFactoryReviewThreads(client, input),
 		).resolves.toEqual([
+			expect.objectContaining({
+				threadId: 'thread-old',
+				reviewId: 'review-old',
+			}),
 			expect.objectContaining({
 				threadId: 'thread-latest',
 				commentId: 'comment-thread-latest',
 				reviewId: 'review-latest',
 				reviewHeadSha: REVIEW_SHA,
 			}),
+		]);
+	});
+
+	it("reads each finding's severity and the author persona's disagreement", async () => {
+		const graphql = vi.fn(async (query: string) => {
+			if (query.includes('LatestFactoryReviews')) {
+				return {
+					repository: {
+						pullRequest: {
+							reviews: {
+								nodes: [review('review-latest')],
+								pageInfo: { hasPreviousPage: false, startCursor: null },
+							},
+						},
+					},
+				};
+			}
+			const declined = `Not a bug: the caller checks first.\n\n${AUTHOR_DECLINED_MARKER}`;
+			return {
+				repository: {
+					pullRequest: {
+						reviewThreads: {
+							nodes: [
+								thread('disputed', 'review-latest', {
+									body: '`[high][correctness]`: Off by one\n\nDetails',
+									totalCount: 2,
+									latest: { body: declined, viewerDidAuthor: true },
+								}),
+								// Anyone can type the marker; only this App's reply counts.
+								thread('forged', 'review-latest', {
+									body: '`[medium][design]`: Naming',
+									totalCount: 2,
+									latest: { body: declined, viewerDidAuthor: false },
+								}),
+								thread('unreadable', 'review-latest', { body: 'no lead' }),
+							],
+							pageInfo: { hasNextPage: false, endCursor: null },
+						},
+					},
+				},
+			};
+		});
+
+		const threads = await loadUnresolvedFactoryReviewThreads(
+			{ graphql } as unknown as InstallationClient,
+			input,
+		);
+		expect(threads).toMatchObject([
+			{
+				threadId: 'disputed',
+				severity: 'high',
+				authorDisputed: true,
+				authorReply: 'Not a bug: the caller checks first.',
+			},
+			{
+				threadId: 'forged',
+				severity: 'medium',
+				authorDisputed: false,
+				authorReply: null,
+			},
+			{ threadId: 'unreadable', severity: null, authorDisputed: false },
 		]);
 	});
 
@@ -214,7 +286,7 @@ describe('review follow-up loading', () => {
 		});
 
 		await expect(
-			loadLatestUnresolvedReviewThreads(
+			loadUnresolvedFactoryReviewThreads(
 				{ graphql } as unknown as InstallationClient,
 				input,
 			),
@@ -281,7 +353,7 @@ describe('review follow-up loading', () => {
 		const client = { graphql } as unknown as InstallationClient;
 
 		await expect(
-			loadLatestUnresolvedReviewThreads(client, input),
+			loadUnresolvedFactoryReviewThreads(client, input),
 		).resolves.toEqual([
 			expect.objectContaining({ threadId: 'thread-latest' }),
 		]);
@@ -295,7 +367,7 @@ describe('review follow-up loading', () => {
 		);
 	});
 
-	it('does not fall back to an older review when the latest review has no open threads', async () => {
+	it("keeps an older review's open threads when the latest review has none", async () => {
 		const graphql = vi.fn(async (query: string) => {
 			if (query.includes('LatestFactoryReviews')) {
 				return {
@@ -322,11 +394,11 @@ describe('review follow-up loading', () => {
 		});
 
 		await expect(
-			loadLatestUnresolvedReviewThreads(
+			loadUnresolvedFactoryReviewThreads(
 				{ graphql } as unknown as InstallationClient,
 				input,
 			),
-		).resolves.toEqual([]);
+		).resolves.toEqual([expect.objectContaining({ threadId: 'thread-old' })]);
 	});
 
 	it('keeps the persisted thread snapshot below the Workflow step-result limit', async () => {
@@ -361,7 +433,7 @@ describe('review follow-up loading', () => {
 			};
 		});
 
-		const result = await loadLatestUnresolvedReviewThreads(
+		const result = await loadUnresolvedFactoryReviewThreads(
 			{ graphql } as unknown as InstallationClient,
 			input,
 		);

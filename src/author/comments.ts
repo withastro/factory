@@ -5,7 +5,10 @@
  * inject markup — in particular, it can't forge the state marker.
  */
 
-import { personaSignature } from '../personas/personas.ts';
+import {
+	AUTHOR_DECLINED_MARKER,
+	personaSignature,
+} from '../personas/personas.ts';
 import { containModelMarkdown } from '../review/diff.ts';
 import type { AuthorResult, AuthorState } from './contracts.ts';
 import { AUTHOR_STATUS_MARKER, formatAuthorStateMarker } from './feedback.ts';
@@ -16,7 +19,7 @@ export const AUTHOR_DISCLOSURE =
 export type AuthorStatus =
 	| { kind: 'idle' }
 	| { kind: 'working'; round: number }
-	| { kind: 'parked' }
+	| { kind: 'handed-off' }
 	| { kind: 'failed'; round: number; reason: string };
 
 export function formatAuthorStatusComment(input: {
@@ -29,7 +32,7 @@ export function formatAuthorStatusComment(input: {
 	const lines = [
 		`### ${login} owns this pull request`,
 		'',
-		`Factory's code author persona addresses review feedback from maintainers and failing checks on this branch, pushing follow-up commits and replying to review threads. It never merges. Unassign **${login}** to take the pull request back; reassign it to start a fresh budget.`,
+		`Factory's code author persona works on this branch when a maintainer or Factory's reviewer requests changes, or when checks fail: it pushes follow-up commits, replies to review threads, and asks for another review. It never merges. Unassign **${login}** to take the pull request back; reassign it to start a fresh budget.`,
 		'',
 		`**Rounds used:** ${state.round} of ${maxRounds}`,
 	];
@@ -37,9 +40,9 @@ export function formatAuthorStatusComment(input: {
 		case 'working':
 			lines.push(`**Status:** working on round ${status.round}…`);
 			break;
-		case 'parked':
+		case 'handed-off':
 			lines.push(
-				`**Status:** stopped — the round budget is used up. A maintainer needs to take it from here, or reassign **${login}** to continue.`,
+				`**Status:** handed off — the round budget is used up and **${login}** unassigned itself. A maintainer needs to take it from here, or reassign **${login}** to continue with a fresh budget.`,
 			);
 			break;
 		case 'failed':
@@ -79,10 +82,19 @@ export function formatAuthorRoundComment(input: {
 		| { kind: 'failed'; detail: string };
 	replies: number;
 	resolved: number;
+	declined: number;
+	/** Whose review was requested again after this round. */
+	reviewersRequested: readonly string[];
 }): string {
 	const { result, push } = input;
+	const heading =
+		push.kind === 'pushed'
+			? 'applied the requested changes'
+			: push.kind === 'unchanged'
+				? 'responded without code changes'
+				: 'could not push its changes';
 	const lines = [
-		`**Round ${input.round} of ${input.maxRounds}**`,
+		`**Round ${input.round} of ${input.maxRounds}: ${heading}**`,
 		'',
 		containModelMarkdown(result.summary.trim()),
 		'',
@@ -102,7 +114,12 @@ export function formatAuthorRoundComment(input: {
 	}
 	if (input.replies > 0) {
 		lines.push(
-			`Replied to ${input.replies} review thread(s), resolved ${input.resolved}.`,
+			`Replied to ${input.replies} review thread(s), resolved ${input.resolved}${input.declined > 0 ? `, disagreed with ${input.declined}` : ''}.`,
+		);
+	}
+	if (input.reviewersRequested.length > 0) {
+		lines.push(
+			`Asked ${input.reviewersRequested.map((login) => `**${login}**`).join(', ')} to review again.`,
 		);
 	}
 	if (result.needsHuman) {
@@ -116,6 +133,29 @@ export function formatAuthorRoundComment(input: {
 	return lines.join('\n');
 }
 
-export function formatThreadReply(login: string, body: string): string {
-	return `${containModelMarkdown(body.trim())}\n\n${personaSignature(login)}`;
+export function formatThreadReply(
+	login: string,
+	body: string,
+	declined = false,
+): string {
+	const reply = `${containModelMarkdown(body.trim())}\n\n${personaSignature(login)}`;
+	// Contained model text can't contain `<`, so the marker can't be forged
+	// from the reply body.
+	return declined ? `${reply}\n${AUTHOR_DECLINED_MARKER}` : reply;
+}
+
+/** Posted when the round budget runs out and the persona steps away. */
+export function formatAuthorHandoffComment(input: {
+	login: string;
+	maxRounds: number;
+}): string {
+	return [
+		`### ${input.login} is handing this pull request to a human`,
+		'',
+		`All ${input.maxRounds} rounds are used and changes are still being requested, so **${input.login}** has unassigned itself and made no further changes. A maintainer needs to take it from here, or reassign **${input.login}** for a fresh budget.`,
+		'',
+		'An outstanding "changes requested" review may still block merging until it is dismissed or the reviewer approves.',
+		'',
+		personaSignature(input.login),
+	].join('\n');
 }

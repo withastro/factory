@@ -10,9 +10,11 @@
  * - triage   — assigning an issue runs the triage pipeline on it.
  * - reviewer — requesting its review (or assigning it) on a pull request runs
  *              the review capability.
- * - author   — assigning a Factory-created pull request hands ownership of it
- *              to the code author capability, which then addresses review
- *              feedback and failing checks until it is unassigned.
+ * - author   — assigning a same-repository pull request hands ownership of it
+ *              to the code author capability, which then addresses requested
+ *              changes and failing checks until it is unassigned.
+ *
+ * See `handoff.ts` for how the personas pass a pull request between them.
  *
  * The persona accounts are inert handles: Factory never signs in as them and
  * holds no credential for them. Everything Factory writes still comes from the
@@ -67,6 +69,13 @@ export function includesPersona(
 export function personaSignature(login: string): string {
 	return `<sub>— ${login} (Factory persona)</sub>`;
 }
+
+/**
+ * Hidden marker on an author persona's thread reply that declines a review
+ * finding. The reviewer persona reads it (only from replies this App wrote)
+ * to tell a standing disagreement from a finding nobody has answered yet.
+ */
+export const AUTHOR_DECLINED_MARKER = '<!-- factory:author-declined -->';
 
 /**
  * Why an assignment delivery for persona `name` should not act, or undefined

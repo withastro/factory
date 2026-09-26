@@ -154,37 +154,44 @@ on a fresh repository requires no setup.
 
 ### Code author (`src/author/`)
 
-The code author persona owns Factory-created pull requests (same-repository
-`factory/*` branches, such as triage fix PRs and adversary drafts) while they
-are assigned to it. See [Personas](#personas) for how it is addressed.
+The code author persona owns any same-repository pull request assigned to
+it. Triage assigns it to every fix pull request it opens. See
+[Personas](#personas) for how it is addressed and how it works with the
+reviewer persona.
 
 - **Adoption.** Assigning the persona to a pull request posts an ownership
-  status comment and immediately addresses any outstanding maintainer
-  feedback and failing checks.
-- **Rounds.** After that, each maintainer review, review comment, or pull
-  request comment, and each failed check suite or workflow run on the branch,
-  queues a round. The workflow re-reads the pull request when it runs, so
-  feedback that arrived while a round was running collapses into the next
+  status comment and immediately addresses any outstanding requested changes
+  and failing checks.
+- **Rounds.** A round starts when a maintainer or Factory's reviewer
+  **requests changes**, or when a check suite or workflow run on the branch
+  fails. Comments and review threads are read as context but never start a
+  round on their own. The workflow re-reads the pull request when it runs,
+  so feedback that arrived while a round was running collapses into the next
   one. A round clones the branch into a credential-free sandbox (bootstrapped
   with the triage `installCommand` / `buildCommand`), stages the failing
   Actions job log tails, and hands the agent the round's feedback. The
   workflow then commits the agent's working tree and pushes it **without
   force**, rebasing once onto commits a maintainer pushed meanwhile and
   aborting rather than resolving a conflict. It replies to the review threads
-  the agent answered, resolves the ones it says are fully addressed, and
-  posts a round summary. The persona never merges.
+  the agent answered, resolves the ones it says are fully addressed, marks
+  the ones it declined, and posts a round summary. The persona never merges.
+- **Handing back.** After a round, it requests review again from everyone
+  whose requested changes it answered, even when it disagreed and pushed
+  nothing. Any push also re-requests the reviewer persona.
 - **Memory.** The agent keeps one durable Flue conversation per pull request
   (`author:<repositoryId>:<pullNumber>`), so each round sees what earlier
   rounds tried.
 - **Trust.** Only feedback from maintainers (`OWNER`, `MEMBER`,
   `COLLABORATOR`) and from this Factory installation's reviewer reaches the
-  agent; everything else is withheld, not merely labelled. Bot activity,
-  including Factory's own replies, never starts a round.
+  agent; everything else is withheld, not merely labelled. Other bots never
+  start a round.
 - **Budget.** A pull request gets `personas.author.maxRounds` rounds (default
-  5), failed rounds included. Then the persona stops and asks for a human.
-  Reassigning it starts a fresh budget, and unassigning it cancels queued
-  rounds. Ownership state lives in the status comment, and it is trusted only
-  when this GitHub App wrote the comment.
+  5), failed rounds included. When changes are requested after that, the
+  persona comments that it is handing off, labels the pull request
+  `factory: needs human`, and unassigns itself. Reassigning it starts a
+  fresh budget, and unassigning it cancels queued rounds. Ownership state
+  lives in the status comment, and it is trusted only when this GitHub App
+  wrote the comment.
 
 ### Release security (`src/release-security/`)
 
@@ -213,7 +220,38 @@ and the assignment is the signal to act:
 |---|---|---|
 | `triage` | Issue assigned to it | Runs the triage pipeline, whatever the current label, then unassigns itself. Reassign it to run triage again. |
 | `reviewer` | Review requested from it, or pull request assigned to it | Runs the review capability (a label isn't needed), then withdraws the request or assignment. Re-request it to review again. |
-| `author` | Factory pull request assigned to it | Takes ownership and addresses maintainer feedback and failing checks until unassigned (see [Code author](#code-author-srcauthor)). |
+| `author` | Same-repository pull request assigned to it | Takes ownership and addresses requested changes and failing checks until unassigned (see [Code author](#code-author-srcauthor)). |
+
+### The review loop
+
+The reviewer and author personas play GitHub's own review loop, and every
+hop between them is a visible GitHub state change a maintainer can step
+into:
+
+1. Triage opens a fix pull request, assigns the author persona, and requests
+   the reviewer persona.
+2. The reviewer reviews. With no findings above the least severe configured
+   severity (by default: nothing but `low`), it **approves** and the loop
+   ends; a human merges. Otherwise it **requests changes**.
+3. Requested changes start an author round. The author fixes what it agrees
+   with and declines what it doesn't, explaining why in the thread. Then it
+   re-requests the reviewer.
+4. The reviewer re-reviews, weighing each declined finding. If it accepts the
+   author's reasoning it resolves the thread. If every blocking finding left
+   is one the author declined and the reviewer still stands by, that is a
+   **stand-still**: the reviewer says so, labels the pull request
+   `factory: needs human`, and unassigns the author so nothing proceeds.
+5. The author's round budget bounds the loop; when it runs out, the author
+   hands the pull request to a human the same way.
+
+A human "Request changes" review starts an author round too, and failing
+checks do as well. GitHub doesn't let an App approve or request changes on
+a pull request it opened itself, which covers every triage fix. There the
+reviewer's verdict is posted as a comment review that states the verdict,
+and the author acts on it just the same. On other pull requests the
+verdict is a real GitHub approval or change request, and a change request
+may block merging until the reviewer approves or someone dismisses it.
+Label-triggered reviews stay plain comments with no verdict.
 
 GitHub App accounts can't be assigned or asked for review, so each persona
 is a plain GitHub **user account** with enough repository access to be
@@ -472,8 +510,7 @@ Three deliberate design choices:
   (read/write), Checks (read/write), Actions (read/write — dispatching preview
   release workflows), Repository security advisories (read).
 - **Events**: Pull request, Check run, Issues, Issue comment. The code author
-  persona also needs Pull request review, Pull request review comment, Check
-  suite, and Workflow run.
+  persona also needs Pull request review, Check suite, and Workflow run.
 - **Webhook URL**: `https://<worker>/channels/github/webhook`.
 - **Secrets** (`wrangler secret put` / `.dev.vars`): `GITHUB_APP_ID`,
   `GITHUB_APP_PRIVATE_KEY` (PKCS#8 — convert with

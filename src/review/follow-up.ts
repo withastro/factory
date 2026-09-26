@@ -1,4 +1,5 @@
 import type { InstallationClient } from '../github/client.ts';
+import { AUTHOR_DECLINED_MARKER } from '../personas/personas.ts';
 import {
 	MAX_REVIEW_THREAD_BODY_LENGTH,
 	MAX_REVIEW_THREAD_DIFF_LENGTH,
@@ -6,7 +7,7 @@ import {
 	MAX_UNRESOLVED_REVIEW_THREADS,
 	type UnresolvedReviewThread,
 } from './contracts.ts';
-import { parseReviewMarker } from './diff.ts';
+import { parseFindingSeverity, parseReviewMarker } from './diff.ts';
 
 const utf8Encoder = new TextEncoder();
 
@@ -67,6 +68,12 @@ const REVIEW_THREADS_QUERY = `
 								url
 								updatedAt
 								pullRequestReview { id }
+							}
+						}
+						latest: comments(last: 1) {
+							nodes {
+								body
+								viewerDidAuthor
 							}
 						}
 					}
@@ -204,6 +211,9 @@ interface ReviewThreadNode {
 			pullRequestReview: { id: string } | null;
 		} | null> | null;
 	};
+	latest?: {
+		nodes: Array<{ body: string; viewerDidAuthor: boolean } | null> | null;
+	};
 }
 
 interface RevalidateThreadsResponse {
@@ -235,12 +245,19 @@ interface ResolveThreadResponse {
 	} | null;
 }
 
-export async function loadLatestUnresolvedReviewThreads(
+/**
+ * Unresolved inline threads opened by any of this installation's reviews.
+ *
+ * Every Factory review counts, not only the latest: a re-review doesn't
+ * repeat findings that still stand, so a finding from an earlier round stays
+ * open in its original thread and must still weigh on the verdict.
+ */
+export async function loadUnresolvedFactoryReviewThreads(
 	client: InstallationClient,
 	input: ReviewFollowUpInput,
 ): Promise<UnresolvedReviewThread[]> {
-	const review = await findLatestFactoryReview(client, input);
-	if (!review) return [];
+	const reviews = await findFactoryReviews(client, input);
+	if (reviews.size === 0) return [];
 
 	const threads: UnresolvedReviewThread[] = [];
 	let after: string | null = null;
@@ -260,7 +277,16 @@ export async function loadLatestUnresolvedReviewThreads(
 		for (const thread of connection.nodes ?? []) {
 			if (!thread || thread.isResolved) continue;
 			const comment = thread.comments.nodes?.[0];
-			if (!comment || comment.pullRequestReview?.id !== review.id) continue;
+			const reviewId = comment?.pullRequestReview?.id;
+			const review = reviewId ? reviews.get(reviewId) : undefined;
+			if (!comment || !review) continue;
+			const latest = thread.latest?.nodes?.[0];
+			// The author persona's declining reply is the thread's last word, and
+			// only a reply this installation wrote can carry the marker.
+			const disputed =
+				thread.comments.totalCount > 1 &&
+				latest?.viewerDidAuthor === true &&
+				latest.body.includes(AUTHOR_DECLINED_MARKER);
 			threads.push({
 				threadId: thread.id,
 				commentId: comment.id,
@@ -280,10 +306,19 @@ export async function loadLatestUnresolvedReviewThreads(
 				url: comment.url,
 				commentUpdatedAt: comment.updatedAt,
 				commentCount: thread.comments.totalCount,
+				severity: parseFindingSeverity(comment.body) ?? null,
+				authorDisputed: disputed,
+				authorReply:
+					disputed && latest
+						? truncate(
+								latest.body.replace(AUTHOR_DECLINED_MARKER, '').trim(),
+								MAX_REVIEW_THREAD_BODY_LENGTH,
+							)
+						: null,
 			});
 			if (threads.length > MAX_UNRESOLVED_REVIEW_THREADS) {
 				throw new Error(
-					`The latest Factory review has more than ${MAX_UNRESOLVED_REVIEW_THREADS} unresolved threads.`,
+					`Factory reviews have more than ${MAX_UNRESOLVED_REVIEW_THREADS} unresolved threads.`,
 				);
 			}
 		}
@@ -424,10 +459,12 @@ function isForbiddenGraphqlResponse(error: unknown): boolean {
 	);
 }
 
-async function findLatestFactoryReview(
+/** This installation's reviews on the pull request, by id, with their head. */
+async function findFactoryReviews(
 	client: InstallationClient,
 	input: ReviewFollowUpInput,
-): Promise<FactoryReview | undefined> {
+): Promise<Map<string, FactoryReview>> {
+	const found = new Map<string, FactoryReview>();
 	let before: string | null = null;
 	while (true) {
 		const response: ReviewPageResponse =
@@ -439,18 +476,16 @@ async function findLatestFactoryReview(
 			response.repository?.pullRequest?.reviews;
 		if (!connection)
 			throw new Error('The pull request was not found while loading reviews.');
-		const reviews = connection.nodes ?? [];
-		for (let index = reviews.length - 1; index >= 0; index -= 1) {
-			const review = reviews[index];
+		for (const review of connection.nodes ?? []) {
 			if (!review?.viewerDidAuthor) continue;
 			const marker = parseReviewMarker(review.body);
 			if (!marker) continue;
 			if (review.commit && review.commit.oid.toLowerCase() !== marker.headSha)
 				continue;
-			return { id: review.id, headSha: marker.headSha };
+			found.set(review.id, { id: review.id, headSha: marker.headSha });
 		}
 
-		if (!connection.pageInfo.hasPreviousPage) return;
+		if (!connection.pageInfo.hasPreviousPage) return found;
 		before = connection.pageInfo.startCursor;
 		if (!before) throw new Error('GitHub omitted the previous review cursor.');
 	}

@@ -97,8 +97,13 @@ export function formatReviewBody(
 	result: ReviewResult,
 	unanchored: Finding[],
 	marker: string,
+	/** Trusted text shown above the summary, such as a persona verdict. */
+	notice?: string,
 ): string {
-	const sections = [containModelMarkdown(result.summary.trim())];
+	const sections = [
+		...(notice ? [notice] : []),
+		containModelMarkdown(result.summary.trim()),
+	];
 	if (unanchored.length > 0) {
 		sections.push(
 			[
@@ -124,6 +129,13 @@ export function formatReviewBody(
 
 export function formatInlineFinding(finding: Finding): string {
 	return `${formatFindingLead(finding)}\n\n${containModelMarkdown(finding.body)}`;
+}
+
+const FINDING_LEAD_PATTERN = /^`\[([^\]`]+)\]\[[^\]`]+\]`:/;
+
+/** The severity of a published inline finding, from its rendered lead. */
+export function parseFindingSeverity(body: string): string | undefined {
+	return FINDING_LEAD_PATTERN.exec(body)?.[1];
 }
 
 function formatFindingLead(finding: Finding): string {

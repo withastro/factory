@@ -6,6 +6,11 @@ import {
 	type PublishReviewInput,
 	publishReview,
 } from '../src/review/publish.ts';
+import {
+	CHANGES_REQUESTED_VERDICT_MARKER,
+	type ReviewVerdict,
+	verdictMarker,
+} from '../src/review/verdict.ts';
 
 const input: PublishReviewInput = {
 	owner: 'withastro',
@@ -30,15 +35,27 @@ const result: ReviewResult = {
 	],
 };
 
-function createClient(options: { existingReview?: boolean } = {}) {
+function createClient(
+	options: { existingReview?: boolean; ownPullRequest?: boolean } = {},
+) {
 	const listReviews = vi.fn();
 	const listFiles = vi.fn();
-	const createReview = vi.fn(async () => ({
-		data: {
-			id: 42,
-			html_url: 'https://github.com/withastro/astro/pull/123#review-42',
-		},
-	}));
+	const createReview = vi.fn(async (request: { event: string }) => {
+		if (options.ownPullRequest && request.event !== 'COMMENT') {
+			throw Object.assign(
+				new Error(
+					'Unprocessable Entity: "Can not approve your own pull request"',
+				),
+				{ status: 422 },
+			);
+		}
+		return {
+			data: {
+				id: 42,
+				html_url: 'https://github.com/withastro/astro/pull/123#review-42',
+			},
+		};
+	});
 	const client = {
 		rest: {
 			pulls: {
@@ -116,5 +133,58 @@ describe('review publication', () => {
 			reviewUrl: 'https://github.com/withastro/astro/pull/123#review-7',
 		});
 		expect(createReview).not.toHaveBeenCalled();
+	});
+});
+
+describe('persona review verdicts', () => {
+	it('publishes the verdict as the review event', async () => {
+		const cases: Array<[ReviewVerdict, string]> = [
+			[{ kind: 'approve' }, 'APPROVE'],
+			[{ kind: 'request-changes' }, 'REQUEST_CHANGES'],
+			[{ kind: 'stand-still', disputed: [] }, 'COMMENT'],
+		];
+		for (const [verdict, event] of cases) {
+			const { client, createReview } = createClient();
+			await expect(
+				publishReview(client, input, result, verdict),
+			).resolves.toMatchObject({ verdict: verdict.kind, event });
+			expect(createReview).toHaveBeenCalledWith(
+				expect.objectContaining({
+					event,
+					body: expect.stringContaining(verdictMarker(verdict.kind)),
+				}),
+			);
+		}
+	});
+
+	it("falls back to a comment on the App's own pull request, keeping the verdict marker", async () => {
+		const { client, createReview } = createClient({ ownPullRequest: true });
+		await expect(
+			publishReview(client, input, result, { kind: 'request-changes' }),
+		).resolves.toMatchObject({
+			verdict: 'request-changes',
+			event: 'COMMENT',
+		});
+		expect(createReview).toHaveBeenCalledTimes(2);
+		expect(createReview).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				event: 'COMMENT',
+				body: expect.stringContaining(CHANGES_REQUESTED_VERDICT_MARKER),
+			}),
+		);
+		expect(createReview.mock.lastCall?.[0]).toMatchObject({
+			body: expect.stringContaining('**Verdict: changes requested.**'),
+		});
+	});
+
+	it('keeps label-triggered reviews as plain comments without a verdict', async () => {
+		const { client, createReview } = createClient();
+		await publishReview(client, input, result);
+		expect(createReview).toHaveBeenCalledWith(
+			expect.objectContaining({ event: 'COMMENT' }),
+		);
+		expect(createReview.mock.lastCall?.[0]).not.toMatchObject({
+			body: expect.stringContaining('factory-review-verdict'),
+		});
 	});
 });

@@ -10,18 +10,16 @@ const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
 const positiveInteger = v.pipe(v.number(), v.integer(), v.minValue(1));
 
 /**
- * Branches the author persona may push to. Everything Factory itself creates
- * lives under this prefix (triage `factory/fix-N`, adversary
- * `factory/adversary/...`), so ownership never extends to a human's branch.
+ * What started an author run. `review` is a CHANGES_REQUESTED review.
+ * `review-comment` and `comment` no longer start runs; they stay accepted so
+ * runs queued before that change still parse.
  */
-export const FACTORY_BRANCH_PREFIX = 'factory/';
-
 export const AUTHOR_TRIGGERS = [
 	'adopted',
 	'review',
+	'check-failure',
 	'review-comment',
 	'comment',
-	'check-failure',
 ] as const;
 
 export type AuthorTrigger = (typeof AUTHOR_TRIGGERS)[number];
@@ -109,6 +107,12 @@ export interface FeedbackComment {
 	author: FeedbackAuthor;
 	/** Review state (`CHANGES_REQUESTED`, `COMMENTED`, ...) for reviews. */
 	state: string | null;
+	/**
+	 * A review requesting changes: the CHANGES_REQUESTED state, or this
+	 * installation's reviewer verdict posted as a comment where GitHub
+	 * refuses the App a real "request changes" (pull requests it opened).
+	 */
+	requestsChanges?: boolean;
 	body: string;
 	createdAt: string;
 	url: string;
@@ -147,6 +151,8 @@ export interface PullRequestSnapshot {
 	title: string;
 	body: string;
 	state: string;
+	/** Login of whoever opened the pull request; null for a deleted account. */
+	author: string | null;
 	headRef: string;
 	headSha: string;
 	baseRef: string;
@@ -168,6 +174,12 @@ const threadReplySchema = v.object({
 	resolve: v.pipe(
 		v.boolean(),
 		v.description('true only when your change fully addresses the thread.'),
+	),
+	declined: v.pipe(
+		v.optional(v.boolean(), false),
+		v.description(
+			'true when you disagree with the finding and deliberately made no change for it; your reply must explain why. Never together with resolve.',
+		),
 	),
 });
 
@@ -246,7 +258,7 @@ export const authorStateSchema = v.object({
 	lastHandledAt: v.nullable(v.string()),
 	/** Head commit whose failing checks have already been attempted. */
 	lastCheckSha: v.nullable(v.string()),
-	/** The round budget ran out; the persona waits for reassignment. */
+	/** The round budget ran out and the persona handed the pull request off. */
 	parked: v.boolean(),
 });
 
@@ -264,7 +276,7 @@ export const INITIAL_AUTHOR_STATE: AuthorState = {
 export type AuthorWorkflowOutcome =
 	| { outcome: 'ignored'; reason: string }
 	| { outcome: 'idle'; reason: string }
-	| { outcome: 'parked'; round: number }
+	| { outcome: 'handed-off'; round: number }
 	| {
 			outcome: 'handled';
 			round: number;
