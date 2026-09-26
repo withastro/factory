@@ -310,9 +310,7 @@ export async function loadCheckLogTail(
 			typeof response.data === 'string'
 				? response.data
 				: new TextDecoder().decode(response.data as ArrayBuffer);
-		return text.length <= MAX_CHECK_LOG_BYTES
-			? text
-			: text.slice(-MAX_CHECK_LOG_BYTES);
+		return tailLines(cleanLogText(text), MAX_CHECK_LOG_BYTES);
 	} catch (error) {
 		console.warn(
 			`Could not read logs for Actions job ${input.jobId}:`,
@@ -320,6 +318,42 @@ export async function loadCheckLogTail(
 		);
 		return null;
 	}
+}
+
+// Terminal escape sequences: CSI (colours, cursor movement), OSC (titles,
+// hyperlinks), and the remaining two-byte escapes.
+const ANSI_ESCAPE =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point.
+	/\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|[@-Z\\-_])/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point.
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
+// GitHub Actions prefixes every line with an ISO timestamp.
+const LINE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z /gm;
+
+/**
+ * Plain text from a raw CI log: no terminal colour codes, control characters,
+ * byte-order mark, or per-line timestamps. Raw Actions logs are full of ANSI
+ * escapes; sent to the model as a tool result they made the model request
+ * fail with a bare 400, and they are noise to the agent anyway.
+ */
+export function cleanLogText(text: string): string {
+	return text
+		.replace(/^\ufeff/, '')
+		.replace(ANSI_ESCAPE, '')
+		.replace(/\r\n?/g, '\n')
+		.replace(CONTROL_CHARACTERS, '')
+		.replace(LINE_TIMESTAMP, '');
+}
+
+/**
+ * The last `max` characters of `text`, starting at a line boundary so the
+ * tail never opens mid-line (or mid surrogate pair).
+ */
+export function tailLines(text: string, max: number): string {
+	if (text.length <= max) return text;
+	const tail = text.slice(-max);
+	const newline = tail.indexOf('\n');
+	return newline === -1 ? tail.slice(1) : tail.slice(newline + 1);
 }
 
 // ---------- Status comment ----------
