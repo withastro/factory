@@ -51,9 +51,10 @@ export function createFactoryAIGatewayProvider(): Provider {
 
 	// Pi's gateway catalog does not list Claude Opus 5.5 yet (models.dev lacks
 	// it, and pi only backfills it for the direct Anthropic provider). Derive
-	// it from pi's Anthropic entry until the gateway catalog catches up.
-	const models = withCodeModel.some(
-		(model) => model.id === GATEWAY_OPUS_5_5_MODEL_ID,
+	// it from pi's Anthropic entry until the gateway catalog catches up, in
+	// either the dotted or dashed form.
+	const models = withCodeModel.some((model) =>
+		OPUS_5_5_CATALOG_IDS.includes(model.id),
 	)
 		? withCodeModel
 		: [...withCodeModel, createGatewayOpus55Model(withCodeModel)];
@@ -98,9 +99,13 @@ export function createFactoryAIGatewayProvider(): Provider {
 	};
 }
 
-/** Gateway catalog ids for Claude use dotted versions. */
-export const GATEWAY_OPUS_5_5_MODEL_ID = 'claude-opus-5.5';
-const ANTHROPIC_OPUS_5_5_MODEL_ID = 'claude-opus-5-5';
+/**
+ * Anthropic's id for Claude Opus 5.5. The gateway's native Anthropic endpoint
+ * forwards the id verbatim, so it must be dashed; Flue registers the gateway's
+ * dotted catalog ids (`claude-opus-4.6`) under their dashed form as well.
+ */
+export const GATEWAY_OPUS_5_5_MODEL_ID = 'claude-opus-5-5';
+const OPUS_5_5_CATALOG_IDS = [GATEWAY_OPUS_5_5_MODEL_ID, 'claude-opus-5.5'];
 
 function createGatewayOpus55Model(gatewayModels: Model<Api>[]): Model<Api> {
 	// Reuse the gateway's native Anthropic endpoint and gateway-specific compat
@@ -116,7 +121,7 @@ function createGatewayOpus55Model(gatewayModels: Model<Api>[]): Model<Api> {
 
 	const source = anthropicProvider()
 		.getModels()
-		.find((model) => model.id === ANTHROPIC_OPUS_5_5_MODEL_ID);
+		.find((model) => model.id === GATEWAY_OPUS_5_5_MODEL_ID);
 	if (!source) {
 		throw new Error('Anthropic Claude Opus 5.5 metadata is unavailable.');
 	}

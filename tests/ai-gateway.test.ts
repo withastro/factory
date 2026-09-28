@@ -146,8 +146,9 @@ describe('Factory AI Gateway provider', () => {
 describe('Factory AI Gateway model resolution', () => {
 	it.each([
 		['anthropic/claude-opus-5-5', GATEWAY_OPUS_5_5_MODEL_ID],
-		['anthropic/claude-sonnet-4-6', 'claude-sonnet-4.6'],
-		['cloudflare-ai-gateway/claude-opus-4.6', 'claude-opus-4.6'],
+		['anthropic/claude-sonnet-4-6', 'claude-sonnet-4-6'],
+		['cloudflare-ai-gateway/claude-opus-4-6', 'claude-opus-4-6'],
+		['cloudflare-ai-gateway/claude-opus-4.6', 'claude-opus-4-6'],
 	])('resolves legacy config value %s', async (specifier, expectedId) => {
 		const { resetModelsForTests, resolveModel, setProvider } = await import(
 			'@flue/runtime/internal'
@@ -159,6 +160,29 @@ describe('Factory AI Gateway model resolution', () => {
 			const model = resolveModel(normalizeModelSpecifier(specifier));
 			expect(model.provider).toBe(AI_GATEWAY_PROVIDER);
 			expect(model.id).toBe(expectedId);
+		} finally {
+			resetModelsForTests();
+			vi.restoreAllMocks();
+		}
+	});
+
+	it('resolves every native Anthropic endpoint model to a dashed id', async () => {
+		const { resetModelsForTests, resolveModel, setProvider } = await import(
+			'@flue/runtime/internal'
+		);
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const provider = createFactoryAIGatewayProvider();
+		const anthropic = provider
+			.getModels()
+			.filter((model) => model.baseUrl.endsWith('/anthropic'));
+		resetModelsForTests();
+		setProvider(provider);
+		try {
+			expect(anthropic.length).toBeGreaterThan(0);
+			const dotted = anthropic
+				.map((model) => resolveModel(`${AI_GATEWAY_PROVIDER}/${model.id}`).id)
+				.filter((id) => /\d\.\d/.test(id));
+			expect(dotted).toEqual([]);
 		} finally {
 			resetModelsForTests();
 			vi.restoreAllMocks();

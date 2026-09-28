@@ -273,7 +273,7 @@ personas:
   author:
     # login: astro-author
     # skill: .agents/skills/author  # overrides the bundled default skill
-    # model: cloudflare-ai-gateway/claude-opus-4.6
+    # model: cloudflare-ai-gateway/claude-opus-4-6
     # thinkingLevel: medium # minimal, low, medium, high, xhigh, or max (default: high)
     # maxRounds: 5
 ```
@@ -296,18 +296,18 @@ adversary:
     label: ai-adversary
   blueTeam:
     # skill: .agents/skills/adversary-blue
-    # model: cloudflare-ai-gateway/claude-opus-4.6
+    # model: cloudflare-ai-gateway/claude-opus-4-6
     # thinkingLevel: medium
   purpleTeam:
     # skill: .agents/skills/adversary-purple
-    # model: cloudflare-ai-gateway/claude-opus-4.6
+    # model: cloudflare-ai-gateway/claude-opus-4-6
     # thinkingLevel: high
 
 review:
   trigger:
     label: ai-review
   # skill: .agents/skills/astro-review # overrides the bundled default skill
-  # model: cloudflare-ai-gateway/claude-opus-4.6 # overrides the built-in reviewer model
+  # model: cloudflare-ai-gateway/claude-opus-4-6 # overrides the built-in reviewer model
   # thinkingLevel: high # minimal, low, medium, high, xhigh, or max (default: high)
   # severity: [critical, high, medium, low]
   # areas: [correctness, security, ...]
@@ -317,7 +317,7 @@ triage:
   # autoPrOnFix: false
   # skill: .agents/skills/triage       # overrides the bundled default skill
   # prWriterSkill: .agents/skills/pr-writer # adds repository-specific PR guidance
-  # model: cloudflare-ai-gateway/claude-opus-4.6 # reproduce/diagnose/fix pipeline
+  # model: cloudflare-ai-gateway/claude-opus-4-6 # reproduce/diagnose/fix pipeline
   # thinkingLevel: medium # default: high
   # verificationModel: cloudflare-ai-gateway/claude-haiku-4-5 # classifiers
   # verificationThinkingLevel: low # omitted means use the model/provider default
@@ -433,7 +433,7 @@ ensuring every inference request passes through the shared gateway:
   for example
   `cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code`.
 - Anthropic models use their normal model id, for example
-  `cloudflare-ai-gateway/claude-opus-4.6`. They use the gateway's native
+  `cloudflare-ai-gateway/claude-opus-4-6`. They use the gateway's native
   Anthropic endpoint rather than calling Anthropic directly.
 
 The direct Workers AI and Anthropic providers are not bundled, and the Worker
