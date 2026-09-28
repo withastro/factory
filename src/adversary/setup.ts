@@ -134,11 +134,13 @@ export async function loadAdversarySetup(
 			...shared,
 			baseRef: params.baseRef,
 			model: config.blueTeam.model,
+			thinkingLevel: config.blueTeam.thinkingLevel,
 			skill: blueSkill,
 		},
 		purpleInput: {
 			...shared,
 			model: config.purpleTeam.model,
+			thinkingLevel: config.purpleTeam.thinkingLevel,
 			skill: purpleSkill,
 		},
 	};

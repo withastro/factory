@@ -4,6 +4,7 @@
  */
 
 import * as v from 'valibot';
+import { thinkingLevelSchema } from '../thinking.ts';
 
 const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
 
@@ -29,6 +30,7 @@ export const triagePipelineInputSchema = v.object({
 	skillName: nonEmptyString,
 	skillDirectory: nonEmptyString,
 	model: nonEmptyString,
+	thinkingLevel: v.optional(thinkingLevelSchema),
 });
 
 export type TriagePipelineInput = v.InferOutput<

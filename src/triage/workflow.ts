@@ -505,6 +505,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 			skillName: skill.name,
 			skillDirectory: skill.directory,
 			model: triage.model,
+			thinkingLevel: triage.thinkingLevel,
 		};
 		const pipelineStep = <S extends v.GenericSchema>(
 			name: string,
@@ -1271,6 +1272,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					issueBody: issue.body,
 					conversation: issue.conversation,
 					model: triage.verificationModel,
+					thinkingLevel: triage.verificationThinkingLevel,
 				},
 				idempotencyKey: params.deliveryId,
 				message: {
@@ -1379,6 +1381,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					latestComment: issue.latestNonBotComment,
 					prWriterSkill,
 					model: triage.verificationModel,
+					thinkingLevel: triage.verificationThinkingLevel,
 				},
 				idempotencyKey: params.deliveryId,
 				message: {

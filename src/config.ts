@@ -22,6 +22,11 @@ import {
 	VERIFICATION_MODEL,
 } from './models.ts';
 import {
+	DEFAULT_THINKING_LEVEL,
+	type ThinkingLevel,
+	thinkingLevelSchema,
+} from './thinking.ts';
+import {
 	DEFAULT_TRIAGE_LABELS,
 	type TriageLabelConfig,
 } from './triage/labels.ts';
@@ -226,6 +231,7 @@ const factoryConfigSchema = v.object({
 				login: v.optional(personaLoginSchema),
 				skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 				model: v.optional(modelSchema),
+				thinkingLevel: v.optional(thinkingLevelSchema),
 				maxRounds: v.optional(
 					v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(20)),
 				),
@@ -239,12 +245,14 @@ const factoryConfigSchema = v.object({
 				v.object({
 					skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 					model: v.optional(modelSchema),
+					thinkingLevel: v.optional(thinkingLevelSchema),
 				}),
 			),
 			purpleTeam: v.optional(
 				v.object({
 					skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 					model: v.optional(modelSchema),
+					thinkingLevel: v.optional(thinkingLevelSchema),
 				}),
 			),
 		}),
@@ -254,6 +262,7 @@ const factoryConfigSchema = v.object({
 			trigger: v.object({ label: labelNameSchema }),
 			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 			model: v.optional(modelSchema),
+			thinkingLevel: v.optional(thinkingLevelSchema),
 			severity: v.optional(classificationListSchema),
 			areas: v.optional(classificationListSchema),
 		}),
@@ -265,7 +274,9 @@ const factoryConfigSchema = v.object({
 			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 			prWriterSkill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
 			model: v.optional(modelSchema),
+			thinkingLevel: v.optional(thinkingLevelSchema),
 			verificationModel: v.optional(modelSchema),
+			verificationThinkingLevel: v.optional(thinkingLevelSchema),
 			installCommand: v.optional(commandListSchema),
 			buildCommand: v.optional(commandListSchema),
 			previewRelease: v.optional(
@@ -306,6 +317,9 @@ const factoryConfigSchema = v.object({
 			labels: v.optional(v.partial(v.object(labelConfigShape()))),
 		}),
 	),
+	releaseSecurity: v.optional(
+		v.object({ thinkingLevel: v.optional(thinkingLevelSchema) }),
+	),
 });
 
 function labelConfigShape() {
@@ -320,6 +334,7 @@ export interface ReviewConfig {
 	skill: string | undefined;
 	/** `<provider>/<model>` for the reviewer agent. */
 	model: string;
+	thinkingLevel: ThinkingLevel;
 	severity: string[];
 	areas: string[];
 }
@@ -329,10 +344,12 @@ export interface AdversaryConfig {
 	blueTeam: {
 		skill: string | undefined;
 		model: string;
+		thinkingLevel: ThinkingLevel;
 	};
 	purpleTeam: {
 		skill: string | undefined;
 		model: string;
+		thinkingLevel: ThinkingLevel;
 	};
 }
 
@@ -362,12 +379,15 @@ export interface TriageConfig {
 	prWriterSkill: string | undefined;
 	/** `<provider>/<model>` for the reproduce/diagnose/fix pipeline agent. */
 	model: string;
+	thinkingLevel: ThinkingLevel;
 	/**
 	 * `<provider>/<model>` for the small classification agents (fix
 	 * verification, retriage decisions). These read conversation text and get
 	 * no tools, so they do not need a coding model.
 	 */
 	verificationModel: string;
+	/** Thinking override for both lightweight triage classifiers; absent uses the model default. */
+	verificationThinkingLevel: ThinkingLevel | undefined;
 	/**
 	 * Commands that install the checkout's dependencies, run in order from the
 	 * repository root before {@link buildCommand}. Defaults to
@@ -405,6 +425,7 @@ export interface AuthorPersonaConfig extends PersonaConfig {
 	skill: string | undefined;
 	/** `<provider>/<model>` for the code author agent. */
 	model: string;
+	thinkingLevel: ThinkingLevel;
 	/**
 	 * Feedback rounds the persona runs on one pull request before it stops and
 	 * asks for a human. Reassigning the persona starts a fresh budget.
@@ -434,6 +455,7 @@ export interface FactoryConfig {
 	adversary: AdversaryConfig | undefined;
 	review: ReviewConfig | undefined;
 	triage: TriageConfig;
+	releaseSecurity: { thinkingLevel: ThinkingLevel };
 }
 
 /** Configuration used when the repository has no factory.yml at all. */
@@ -448,12 +470,15 @@ export function defaultFactoryConfig(): FactoryConfig {
 			skill: undefined,
 			prWriterSkill: undefined,
 			model: CODE_MODEL,
+			thinkingLevel: DEFAULT_THINKING_LEVEL,
 			verificationModel: VERIFICATION_MODEL,
+			verificationThinkingLevel: undefined,
 			installCommand: [...DEFAULT_INSTALL_COMMAND],
 			buildCommand: [],
 			previewRelease: undefined,
 			labels: { ...DEFAULT_TRIAGE_LABELS },
 		},
+		releaseSecurity: { thinkingLevel: DEFAULT_THINKING_LEVEL },
 	};
 }
 
@@ -478,12 +503,18 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 							? validateSkillDirectory(config.adversary.blueTeam.skill)
 							: undefined,
 						model: config.adversary.blueTeam?.model ?? CODE_MODEL,
+						thinkingLevel:
+							config.adversary.blueTeam?.thinkingLevel ??
+							DEFAULT_THINKING_LEVEL,
 					},
 					purpleTeam: {
 						skill: config.adversary.purpleTeam?.skill
 							? validateSkillDirectory(config.adversary.purpleTeam.skill)
 							: undefined,
 						model: config.adversary.purpleTeam?.model ?? CODE_MODEL,
+						thinkingLevel:
+							config.adversary.purpleTeam?.thinkingLevel ??
+							DEFAULT_THINKING_LEVEL,
 					},
 				}
 			: undefined,
@@ -494,6 +525,7 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 						? validateSkillDirectory(config.review.skill)
 						: undefined,
 					model: config.review.model ?? CODE_MODEL,
+					thinkingLevel: config.review.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
 					severity: config.review.severity ?? [...DEFAULT_SEVERITIES],
 					areas: config.review.areas ?? [...DEFAULT_AREAS],
 				}
@@ -508,7 +540,9 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 				? validateSkillDirectory(config.triage.prWriterSkill)
 				: undefined,
 			model: config.triage?.model ?? CODE_MODEL,
+			thinkingLevel: config.triage?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
 			verificationModel: config.triage?.verificationModel ?? VERIFICATION_MODEL,
+			verificationThinkingLevel: config.triage?.verificationThinkingLevel,
 			installCommand: config.triage?.installCommand ?? [
 				...DEFAULT_INSTALL_COMMAND,
 			],
@@ -527,6 +561,10 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 					}
 				: undefined,
 			labels: { ...DEFAULT_TRIAGE_LABELS, ...config.triage?.labels },
+		},
+		releaseSecurity: {
+			thinkingLevel:
+				config.releaseSecurity?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
 		},
 	};
 }
@@ -562,6 +600,7 @@ function parsePersonas(
 							? validateSkillDirectory(author.skill)
 							: undefined,
 						model: author?.model ?? CODE_MODEL,
+						thinkingLevel: author?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
 						maxRounds: author?.maxRounds ?? DEFAULT_AUTHOR_MAX_ROUNDS,
 					},
 	};

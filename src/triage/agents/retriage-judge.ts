@@ -23,7 +23,7 @@ import {
  */
 export function RetriageJudge() {
 	const input = useInitialData<RetriageJudgeInput>();
-	useModel(input.model);
+	useModel(input.model, { thinkingLevel: input.thinkingLevel });
 
 	useSandbox(bash(() => new Bash({ fs: new InMemoryFs() })));
 

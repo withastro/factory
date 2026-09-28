@@ -33,6 +33,7 @@ review:
 					login: 'astro-author',
 					skill: undefined,
 					model: CODE_MODEL,
+					thinkingLevel: 'high',
 					maxRounds: 5,
 				},
 			},
@@ -41,6 +42,7 @@ review:
 				trigger: { label: 'ai-review' },
 				skill: '.agents/skills/astro-review',
 				model: CODE_MODEL,
+				thinkingLevel: 'high',
 				severity: [...DEFAULT_SEVERITIES],
 				areas: [...DEFAULT_AREAS],
 			},
@@ -50,12 +52,15 @@ review:
 				skill: undefined,
 				prWriterSkill: undefined,
 				model: CODE_MODEL,
+				thinkingLevel: 'high',
 				verificationModel: VERIFICATION_MODEL,
+				verificationThinkingLevel: undefined,
 				installCommand: [...DEFAULT_INSTALL_COMMAND],
 				buildCommand: [],
 				previewRelease: undefined,
 				labels: { ...DEFAULT_TRIAGE_LABELS },
 			},
+			releaseSecurity: { thinkingLevel: 'high' },
 		});
 	});
 
@@ -105,6 +110,51 @@ adversary:
 				},
 			},
 		});
+	});
+
+	it('configures thinking levels independently for each agent', () => {
+		const config = parseFactoryConfig(`
+version: 1
+personas:
+  author:
+    thinkingLevel: minimal
+adversary:
+  trigger:
+    label: ai-adversary
+  blueTeam:
+    thinkingLevel: low
+  purpleTeam:
+    thinkingLevel: max
+review:
+  trigger:
+    label: ai-review
+  thinkingLevel: medium
+triage:
+  thinkingLevel: xhigh
+  verificationThinkingLevel: low
+releaseSecurity:
+  thinkingLevel: medium
+`);
+
+		expect(config.personas.author?.thinkingLevel).toBe('minimal');
+		expect(config.adversary?.blueTeam.thinkingLevel).toBe('low');
+		expect(config.adversary?.purpleTeam.thinkingLevel).toBe('max');
+		expect(config.review?.thinkingLevel).toBe('medium');
+		expect(config.triage.thinkingLevel).toBe('xhigh');
+		expect(config.triage.verificationThinkingLevel).toBe('low');
+		expect(config.releaseSecurity.thinkingLevel).toBe('medium');
+	});
+
+	it('rejects unsupported thinking levels', () => {
+		expect(() =>
+			parseFactoryConfig(`
+version: 1
+review:
+  trigger:
+    label: ai-review
+  thinkingLevel: turbo
+`),
+		).toThrow();
 	});
 
 	it('keeps adversary disabled unless its section exists', () => {

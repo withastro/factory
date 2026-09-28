@@ -5,6 +5,7 @@
  */
 
 import * as v from 'valibot';
+import { thinkingLevelSchema } from '../thinking.ts';
 
 const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
 const positiveInteger = v.pipe(v.number(), v.integer(), v.minValue(1));
@@ -87,6 +88,7 @@ export const authorAgentInputSchema = v.object({
 	skillName: nonEmptyString,
 	skillDirectory: nonEmptyString,
 	model: nonEmptyString,
+	thinkingLevel: v.optional(thinkingLevelSchema),
 	personaLogin: nonEmptyString,
 });
 

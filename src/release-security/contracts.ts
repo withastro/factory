@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { CODE_MODEL } from '../models.ts';
+import { thinkingLevelSchema } from '../thinking.ts';
 
 const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
 const shaSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{40}$/));
@@ -38,6 +39,7 @@ export const releaseSecurityAgentInputSchema = v.object({
 	...releaseSecurityWorkflowParamsSchema.entries,
 	sandboxId: nonEmptyString,
 	model: nonEmptyString,
+	thinkingLevel: v.optional(thinkingLevelSchema),
 });
 
 export type ReleaseSecurityMode = v.InferOutput<

@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { skillSnapshotSchema } from '../github/skill.ts';
+import { thinkingLevelSchema } from '../thinking.ts';
 
 const shaSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{40}$/i));
 const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
@@ -90,6 +91,7 @@ export const reviewAgentInputSchema = v.object({
 	/** The configured trigger label, for label-triggered reviews. */
 	triggerLabel: v.optional(nonEmptyString),
 	model: nonEmptyString,
+	thinkingLevel: v.optional(thinkingLevelSchema),
 	severities: v.pipe(v.array(nonEmptyString), v.minLength(1), v.maxLength(50)),
 	areas: v.pipe(v.array(nonEmptyString), v.minLength(1), v.maxLength(50)),
 	skill: skillSnapshotSchema,

@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { skillSnapshotSchema } from '../github/skill.ts';
+import { thinkingLevelSchema } from '../thinking.ts';
 import { prContentSchema } from './pipeline-contracts.ts';
 
 const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
@@ -88,6 +89,7 @@ export const fixVerifierInputSchema = v.object({
 	latestComment: conversationEntrySchema,
 	prWriterSkill: v.optional(skillSnapshotSchema),
 	model: nonEmptyString,
+	thinkingLevel: v.optional(thinkingLevelSchema),
 });
 
 export type FixVerifierInput = v.InferOutput<typeof fixVerifierInputSchema>;
@@ -108,6 +110,7 @@ export const retriageJudgeInputSchema = v.object({
 	issueBody: v.string(),
 	conversation: v.array(conversationEntrySchema),
 	model: nonEmptyString,
+	thinkingLevel: v.optional(thinkingLevelSchema),
 });
 
 export type RetriageJudgeInput = v.InferOutput<typeof retriageJudgeInputSchema>;

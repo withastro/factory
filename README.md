@@ -274,6 +274,7 @@ personas:
     # login: astro-author
     # skill: .agents/skills/author  # overrides the bundled default skill
     # model: cloudflare-ai-gateway/claude-opus-4-6
+    # thinkingLevel: medium # minimal, low, medium, high, xhigh, or max (default: high)
     # maxRounds: 5
 ```
 
@@ -296,15 +297,18 @@ adversary:
   blueTeam:
     # skill: .agents/skills/adversary-blue
     # model: cloudflare-ai-gateway/claude-opus-4-6
+    # thinkingLevel: medium
   purpleTeam:
     # skill: .agents/skills/adversary-purple
     # model: cloudflare-ai-gateway/claude-opus-4-6
+    # thinkingLevel: high
 
 review:
   trigger:
     label: ai-review
   # skill: .agents/skills/astro-review # overrides the bundled default skill
   # model: cloudflare-ai-gateway/claude-opus-4-6 # overrides the built-in reviewer model
+  # thinkingLevel: high # minimal, low, medium, high, xhigh, or max (default: high)
   # severity: [critical, high, medium, low]
   # areas: [correctness, security, ...]
 
@@ -314,7 +318,9 @@ triage:
   # skill: .agents/skills/triage       # overrides the bundled default skill
   # prWriterSkill: .agents/skills/pr-writer # adds repository-specific PR guidance
   # model: cloudflare-ai-gateway/claude-opus-4-6 # reproduce/diagnose/fix pipeline
+  # thinkingLevel: medium # default: high
   # verificationModel: cloudflare-ai-gateway/claude-haiku-4-5 # classifiers
+  # verificationThinkingLevel: low # omitted means use the model/provider default
   # installCommand: pnpm install --no-frozen-lockfile # [] to install nothing
   # buildCommand: pnpm build           # one command, a list, or a block scalar
   # previewRelease:
@@ -325,6 +331,13 @@ triage:
   # labels:
   #   inProgress: bot-working
   #   fixPending: awaiting-confirmation
+
+personas:
+  author:
+    # thinkingLevel: medium # default: high
+
+releaseSecurity:
+  # thinkingLevel: high # release-security reviewer; default: high
 ```
 
 Skills resolve as **bundled default, repository override wins**: the factory
@@ -432,7 +445,14 @@ runtime from encrypted Worker secrets and is never available to target
 repositories or agents. Each request disables prompt and response payload
 retention while leaving gateway usage analytics available.
 
-Five model settings are configurable and default to gateway-routed Workers AI
+Thinking level is independently configurable for each agent in
+`.github/factory.yml`. Supported values are `minimal`, `low`, `medium`, `high`,
+`xhigh`, and `max`. The substantive coding/review agents default to `high`,
+preserving their existing behavior. `triage.verificationThinkingLevel` is
+optional and omitted by default so lightweight classifiers retain the model
+provider's default. The release-security reviewer also defaults to `high`.
+
+Model settings are configurable and default to gateway-routed Workers AI
 models:
 
 | Setting | Used by | Default |
@@ -442,6 +462,10 @@ models:
 | `review.model` | the pull request reviewer | `CODE_MODEL` |
 | `triage.model` | the reproduce/diagnose/fix pipeline | `CODE_MODEL` |
 | `triage.verificationModel` | fix verification and retriage decisions | `VERIFICATION_MODEL` |
+
+The matching `thinkingLevel` fields are available for each model-backed agent:
+`adversary.blueTeam`, `adversary.purpleTeam`, `review`, `triage`,
+`triage.verificationThinkingLevel`, `personas.author`, and `releaseSecurity`.
 
 Defaults live in `src/models.ts`. The verification agents only classify
 conversation text and hold no tools, so they do not need a coding model.

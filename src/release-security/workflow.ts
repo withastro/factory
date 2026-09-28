@@ -5,6 +5,7 @@ import {
 } from 'cloudflare:workers';
 import { init } from '@flue/runtime';
 import * as v from 'valibot';
+import { loadFactoryConfig } from '../config.ts';
 import type { WorkerEnv } from '../env.ts';
 import {
 	createInstallationClient,
@@ -181,6 +182,23 @@ export class ReleaseSecurityWorkflow extends WorkflowEntrypoint<
 			throw new Error('The release pull request changed during preparation.');
 		}
 
+		const thinkingLevel = await step.do(
+			'load release security thinking level',
+			API_STEP,
+			async () => {
+				const client = await createInstallationClient(
+					credentials,
+					input.installationId,
+				);
+				const { config } = await loadFactoryConfig(
+					client,
+					input.owner,
+					input.repo,
+					input.baseSha,
+				);
+				return config.releaseSecurity.thinkingLevel;
+			},
+		);
 		await track('dispatching security agent', {
 			checkRunId,
 			agentId,
@@ -194,6 +212,7 @@ export class ReleaseSecurityWorkflow extends WorkflowEntrypoint<
 						...input,
 						sandboxId,
 						model: RELEASE_SECURITY_MODEL,
+						thinkingLevel,
 					},
 					idempotencyKey: input.deliveryId,
 					message: {

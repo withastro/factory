@@ -23,7 +23,7 @@ export function PullRequestReviewer() {
 		...initialData,
 		unresolvedReviewThreads: initialData.unresolvedReviewThreads ?? [],
 	};
-	useModel(input.model, { thinkingLevel: 'high' });
+	useModel(input.model, { thinkingLevel: input.thinkingLevel ?? 'high' });
 
 	useSandbox(
 		bash(

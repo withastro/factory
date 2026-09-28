@@ -24,7 +24,7 @@ import { prWritingInstructions } from '../prompts.ts';
  */
 export function FixVerifier() {
 	const input = useInitialData<FixVerifierInput>();
-	useModel(input.model);
+	useModel(input.model, { thinkingLevel: input.thinkingLevel });
 
 	useSandbox(
 		bash(
