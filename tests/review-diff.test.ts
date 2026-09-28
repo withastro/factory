@@ -106,7 +106,8 @@ describe('GitHub diff locations', () => {
 		);
 
 		expect(body).toContain('&lt;!-- unclosed comment');
-		expect(body).toContain('\\```ts');
+		// The finding's unclosed fence is closed before the trusted content.
+		expect(body).toContain('```ts\nconst broken = true;\n```');
 		expect(body.endsWith(`*${REVIEW_DISCLOSURE}*`)).toBe(true);
 	});
 
