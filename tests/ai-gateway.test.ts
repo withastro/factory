@@ -28,8 +28,8 @@ describe('Factory AI Gateway provider', () => {
 		expect(models.some((model) => model.id === VERIFICATION_MODEL_ID)).toBe(
 			true,
 		);
-		expect(models.some((model) => model.id === 'claude-opus-4-6')).toBe(true);
-		expect(models.some((model) => model.id === 'claude-haiku-4-5')).toBe(true);
+		expect(models.some((model) => model.id === 'claude-opus-4.6')).toBe(true);
+		expect(models.some((model) => model.id === 'claude-haiku-4.5')).toBe(true);
 	});
 
 	it('adds current Kimi metadata to the gateway compatibility endpoint', () => {
@@ -52,7 +52,7 @@ describe('Factory AI Gateway provider', () => {
 	it('uses the native Anthropic gateway endpoint for Claude', () => {
 		const model = createFactoryAIGatewayProvider()
 			.getModels()
-			.find((candidate) => candidate.id === 'claude-opus-4-6');
+			.find((candidate) => candidate.id === 'claude-opus-4.6');
 
 		expect(model).toMatchObject({
 			provider: AI_GATEWAY_PROVIDER,
@@ -71,6 +71,7 @@ describe('Factory AI Gateway provider', () => {
 		const env = vi.fn(async (name: string) => secretValues[name]);
 		const result = await resolve({
 			ctx: { env, fileExists: async () => false },
+			signal: new AbortController().signal,
 		});
 
 		expect(env.mock.calls.map(([name]) => name)).toEqual([
@@ -107,6 +108,7 @@ describe('Factory AI Gateway provider', () => {
 						: secretValues[name],
 				fileExists: async () => false,
 			},
+			signal: new AbortController().signal,
 		});
 
 		expect(result).toBeUndefined();
