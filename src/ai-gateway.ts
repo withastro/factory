@@ -19,10 +19,23 @@ export function createFactoryAIGatewayProvider(): Provider {
 	const gateway = cloudflareAIGatewayProvider();
 	const gatewayModels = gateway.getModels();
 
-	// Pi's gateway catalog currently trails Workers AI by one model. Reuse the
-	// Workers AI metadata and the gateway's /compat base URL until it catches up.
+	// Pi's gateway catalog now ships the Kimi code model, but conservatively
+	// marks supportsReasoningEffort: false even though the gateway's
+	// OpenAI-compatible endpoint forwards the reasoning-effort option. Patch the
+	// shipped entry; fall back to Workers AI metadata if the catalog ever trails
+	// again.
 	const models = gatewayModels.some((model) => model.id === CODE_MODEL_ID)
-		? gatewayModels
+		? gatewayModels.map((model) =>
+				model.id === CODE_MODEL_ID
+					? {
+							...model,
+							compat: {
+								...model.compat,
+								supportsReasoningEffort: true,
+							},
+						}
+					: model,
+			)
 		: [
 				...gatewayModels,
 				createGatewayCodeModel(
