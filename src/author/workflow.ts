@@ -70,6 +70,7 @@ import {
 	loadPullRequestSnapshot,
 	replyToReviewThread,
 	resolveReviewThread,
+	resolveWriteAccess,
 	saveStatusComment,
 } from './github.ts';
 import { checkOwnership } from './ownership.ts';
@@ -681,7 +682,11 @@ async function loadRound(
 		repo: params.repo,
 		pullNumber: params.pullNumber,
 	};
-	const snapshot = await loadPullRequestSnapshot(api, ref);
+	const snapshot = await resolveWriteAccess(
+		api,
+		ref,
+		await loadPullRequestSnapshot(api, ref),
+	);
 	const ownership = checkOwnership(snapshot, author.login);
 	if (ownership) return { kind: 'ignored', reason: ownership };
 
