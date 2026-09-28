@@ -27,7 +27,10 @@ export const MAX_FEEDBACK_COMMENTS = 20;
 /** A maintainer, or this Factory installation itself. */
 export function isTrustedAuthor(author: FeedbackAuthor): boolean {
 	if (author.factory) return true;
-	return !author.bot && TRUSTED_ASSOCIATIONS.has(author.association);
+	if (author.bot) return false;
+	return (
+		author.writeAccess === true || TRUSTED_ASSOCIATIONS.has(author.association)
+	);
 }
 
 export interface AuthorWork {

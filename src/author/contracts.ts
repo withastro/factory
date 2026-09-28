@@ -100,6 +100,12 @@ export interface FeedbackAuthor {
 	/** Written by this Factory installation (e.g. the reviewer persona). */
 	factory: boolean;
 	bot: boolean;
+	/**
+	 * Has write access to the repository, looked up for authors whose
+	 * association alone doesn't show it: GitHub reports org members with
+	 * private membership as `CONTRIBUTOR` to apps.
+	 */
+	writeAccess?: boolean;
 }
 
 export interface FeedbackComment {

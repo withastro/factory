@@ -15,6 +15,7 @@ import type {
 	FeedbackThread,
 	PullRequestSnapshot,
 } from './contracts.ts';
+import { isTrustedAuthor } from './feedback.ts';
 
 const MAX_BODY = 4_000;
 const MAX_CHECK_SUMMARY = 2_000;
@@ -249,6 +250,80 @@ export async function loadPullRequestSnapshot(
 		),
 		comments,
 		threads,
+	};
+}
+
+/** Write access lookups per round, to bound API calls on busy threads. */
+export const MAX_ACCESS_LOOKUPS = 25;
+const WRITE_PERMISSIONS = new Set(['admin', 'write']);
+
+/**
+ * Marks authors that have write access to the repository even though their
+ * association doesn't say so. GitHub reports org members whose membership is
+ * private as `CONTRIBUTOR` to apps, so a maintainer's review would otherwise
+ * be ignored as untrusted.
+ */
+export async function resolveWriteAccess(
+	client: InstallationClient,
+	input: { owner: string; repo: string },
+	snapshot: PullRequestSnapshot,
+): Promise<PullRequestSnapshot> {
+	const authors = [
+		...snapshot.comments.map((comment) => comment.author),
+		...snapshot.threads.flatMap((thread) => [
+			thread.startedBy,
+			...thread.comments.map((comment) => comment.author),
+		]),
+	];
+	const logins = [
+		...new Set(
+			authors
+				.filter((author) => !author.bot && !isTrustedAuthor(author))
+				.map((author) => author.login.toLowerCase())
+				.filter((login) => login !== 'ghost'),
+		),
+	].slice(0, MAX_ACCESS_LOOKUPS);
+	if (logins.length === 0) return snapshot;
+
+	const writers = new Set<string>();
+	await Promise.all(
+		logins.map(async (login) => {
+			try {
+				const { data } = await client.rest.repos.getCollaboratorPermissionLevel(
+					{ owner: input.owner, repo: input.repo, username: login },
+				);
+				if (WRITE_PERMISSIONS.has(data.permission)) writers.add(login);
+			} catch (error) {
+				// Not a collaborator (404) or unreadable: stays untrusted.
+				if (!isGitHubStatus(error, 404)) {
+					console.warn(
+						`Could not read ${login}'s permission on ${input.owner}/${input.repo}:`,
+						error instanceof Error ? error.message : String(error),
+					);
+				}
+			}
+		}),
+	);
+	if (writers.size === 0) return snapshot;
+
+	const mark = (author: FeedbackAuthor): FeedbackAuthor =>
+		writers.has(author.login.toLowerCase())
+			? { ...author, writeAccess: true }
+			: author;
+	return {
+		...snapshot,
+		comments: snapshot.comments.map((comment) => ({
+			...comment,
+			author: mark(comment.author),
+		})),
+		threads: snapshot.threads.map((thread) => ({
+			...thread,
+			startedBy: mark(thread.startedBy),
+			comments: thread.comments.map((comment) => ({
+				...comment,
+				author: mark(comment.author),
+			})),
+		})),
 	};
 }
 
