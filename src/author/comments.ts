@@ -9,7 +9,7 @@ import {
 	AUTHOR_DECLINED_MARKER,
 	personaSignature,
 } from '../personas/personas.ts';
-import { containModelMarkdown } from '../review/diff.ts';
+import { containModelMarkdown } from '../review/markdown.ts';
 import type { AuthorResult, AuthorState } from './contracts.ts';
 import { AUTHOR_STATUS_MARKER, formatAuthorStateMarker } from './feedback.ts';
 

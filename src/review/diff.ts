@@ -1,4 +1,5 @@
 import type { Finding, ReviewResult } from './contracts.ts';
+import { containModelMarkdown } from './markdown.ts';
 
 export interface ChangedFile {
 	filename: string;
@@ -140,14 +141,4 @@ export function parseFindingSeverity(body: string): string | undefined {
 
 function formatFindingLead(finding: Finding): string {
 	return `\`[${finding.severity}][${finding.area}]\`: ${containModelMarkdown(finding.title)}`;
-}
-
-export function containModelMarkdown(value: string): string {
-	return value
-		.replaceAll('<', '&lt;')
-		.replace(
-			/^([ \t]{0,3})(`{3,}|~{3,})/gm,
-			(_match, indentation: string, fence: string) =>
-				`${indentation}\\${fence}`,
-		);
 }
