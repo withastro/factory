@@ -1,4 +1,5 @@
-import type { Provider } from '@earendil-works/pi-ai';
+import type { Api, Model, Provider } from '@earendil-works/pi-ai';
+import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { cloudflareAIGatewayProvider } from '@earendil-works/pi-ai/providers/cloudflare-ai-gateway';
 import { cloudflareWorkersAIProvider } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai';
 import { CODE_MODEL_ID, WORKERS_AI_CODE_MODEL_ID } from './models.ts';
@@ -24,7 +25,9 @@ export function createFactoryAIGatewayProvider(): Provider {
 	// OpenAI-compatible endpoint forwards the reasoning-effort option. Patch the
 	// shipped entry; fall back to Workers AI metadata if the catalog ever trails
 	// again.
-	const models = gatewayModels.some((model) => model.id === CODE_MODEL_ID)
+	const withCodeModel = gatewayModels.some(
+		(model) => model.id === CODE_MODEL_ID,
+	)
 		? gatewayModels.map((model) =>
 				model.id === CODE_MODEL_ID
 					? {
@@ -45,6 +48,15 @@ export function createFactoryAIGatewayProvider(): Provider {
 					)?.baseUrl,
 				),
 			];
+
+	// Pi's gateway catalog does not list Claude Opus 5.5 yet (models.dev lacks
+	// it, and pi only backfills it for the direct Anthropic provider). Derive
+	// it from pi's Anthropic entry until the gateway catalog catches up.
+	const models = withCodeModel.some(
+		(model) => model.id === GATEWAY_OPUS_5_5_MODEL_ID,
+	)
+		? withCodeModel
+		: [...withCodeModel, createGatewayOpus55Model(withCodeModel)];
 
 	return {
 		...gateway,
@@ -83,6 +95,41 @@ export function createFactoryAIGatewayProvider(): Provider {
 			},
 		},
 		getModels: () => models,
+	};
+}
+
+/** Gateway catalog ids for Claude use dotted versions. */
+export const GATEWAY_OPUS_5_5_MODEL_ID = 'claude-opus-5.5';
+const ANTHROPIC_OPUS_5_5_MODEL_ID = 'claude-opus-5-5';
+
+function createGatewayOpus55Model(gatewayModels: Model<Api>[]): Model<Api> {
+	// Reuse the gateway's native Anthropic endpoint and gateway-specific compat
+	// flags from its newest listed Opus model.
+	const gatewayClaude = gatewayModels.find(
+		(model) => model.id === 'claude-opus-5',
+	);
+	if (!gatewayClaude) {
+		throw new Error(
+			'Cloudflare AI Gateway Claude Opus 5 metadata is unavailable.',
+		);
+	}
+
+	const source = anthropicProvider()
+		.getModels()
+		.find((model) => model.id === ANTHROPIC_OPUS_5_5_MODEL_ID);
+	if (!source) {
+		throw new Error('Anthropic Claude Opus 5.5 metadata is unavailable.');
+	}
+
+	return {
+		...source,
+		id: GATEWAY_OPUS_5_5_MODEL_ID,
+		provider: gatewayClaude.provider,
+		baseUrl: gatewayClaude.baseUrl,
+		compat: {
+			...source.compat,
+			...gatewayClaude.compat,
+		},
 	};
 }
 

@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	AI_GATEWAY_SECRETS,
 	createFactoryAIGatewayProvider,
+	GATEWAY_OPUS_5_5_MODEL_ID,
 } from '../src/ai-gateway.ts';
 import {
 	AI_GATEWAY_PROVIDER,
 	CODE_MODEL_ID,
+	normalizeModelSpecifier,
 	VERIFICATION_MODEL_ID,
 } from '../src/models.ts';
 
@@ -59,6 +61,26 @@ describe('Factory AI Gateway provider', () => {
 			api: 'anthropic-messages',
 			baseUrl:
 				'https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/anthropic',
+		});
+	});
+
+	it('adds Claude Opus 5.5 on the native Anthropic gateway endpoint', () => {
+		const models = createFactoryAIGatewayProvider().getModels();
+		const model = models.find(
+			(candidate) => candidate.id === GATEWAY_OPUS_5_5_MODEL_ID,
+		);
+
+		expect(
+			models.filter((candidate) => candidate.id === GATEWAY_OPUS_5_5_MODEL_ID),
+		).toHaveLength(1);
+		expect(model).toMatchObject({
+			name: 'Claude Opus 5.5',
+			provider: AI_GATEWAY_PROVIDER,
+			api: 'anthropic-messages',
+			baseUrl:
+				'https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/anthropic',
+			reasoning: true,
+			compat: { sendSessionAffinityHeaders: true },
 		});
 	});
 
@@ -118,5 +140,28 @@ describe('Factory AI Gateway provider', () => {
 		expect(createFactoryAIGatewayProvider().headers).toMatchObject({
 			'cf-aig-collect-log-payload': 'false',
 		});
+	});
+});
+
+describe('Factory AI Gateway model resolution', () => {
+	it.each([
+		['anthropic/claude-opus-5-5', GATEWAY_OPUS_5_5_MODEL_ID],
+		['anthropic/claude-sonnet-4-6', 'claude-sonnet-4.6'],
+		['cloudflare-ai-gateway/claude-opus-4.6', 'claude-opus-4.6'],
+	])('resolves legacy config value %s', async (specifier, expectedId) => {
+		const { resetModelsForTests, resolveModel, setProvider } = await import(
+			'@flue/runtime/internal'
+		);
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		resetModelsForTests();
+		setProvider(createFactoryAIGatewayProvider());
+		try {
+			const model = resolveModel(normalizeModelSpecifier(specifier));
+			expect(model.provider).toBe(AI_GATEWAY_PROVIDER);
+			expect(model.id).toBe(expectedId);
+		} finally {
+			resetModelsForTests();
+			vi.restoreAllMocks();
+		}
 	});
 });
