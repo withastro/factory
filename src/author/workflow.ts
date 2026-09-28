@@ -464,6 +464,7 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 			skillName: skill.name,
 			skillDirectory: skill.directory,
 			model: author.model,
+			thinkingLevel: author.thinkingLevel,
 			personaLogin: author.login,
 		};
 		const receipt = await step.do('dispatch author round', async () =>

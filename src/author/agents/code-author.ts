@@ -34,7 +34,7 @@ import {
  */
 export function CodeAuthor() {
 	const input = useInitialData<AuthorAgentInput>();
-	useModel(input.model, { thinkingLevel: 'high' });
+	useModel(input.model, { thinkingLevel: input.thinkingLevel ?? 'high' });
 
 	useSandbox(
 		cloudflareSandbox(

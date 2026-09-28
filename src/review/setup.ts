@@ -166,6 +166,7 @@ export async function loadReviewSetup(
 			body: pull.data.body ?? '',
 			...(trigger.persona ? {} : { triggerLabel: config.trigger.label }),
 			model: config.model,
+			thinkingLevel: config.thinkingLevel,
 			severities: config.severity,
 			areas: config.areas,
 			skill,

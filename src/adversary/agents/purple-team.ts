@@ -27,7 +27,7 @@ import {
 
 export function PurpleTeam() {
 	const input = useInitialData<PurpleTeamInput>();
-	useModel(input.model, { thinkingLevel: 'high' });
+	useModel(input.model, { thinkingLevel: input.thinkingLevel ?? 'high' });
 	useSkill(adversarySkillDefinition(input.skill));
 
 	const sandbox = getAdversarySandbox(

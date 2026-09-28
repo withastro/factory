@@ -25,7 +25,7 @@ import {
 
 export function BlueTeam() {
 	const input = useInitialData<BlueTeamInput>();
-	useModel(input.model, { thinkingLevel: 'high' });
+	useModel(input.model, { thinkingLevel: input.thinkingLevel ?? 'high' });
 	useSkill(adversarySkillDefinition(input.skill));
 
 	const sandbox = getAdversarySandbox(

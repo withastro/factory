@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { skillSnapshotSchema } from '../github/skill.ts';
+import { thinkingLevelSchema } from '../thinking.ts';
 
 const nonEmptyString = v.pipe(v.string(), v.trim(), v.minLength(1));
 const shaSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{40}$/i));
@@ -31,6 +32,7 @@ export const blueTeamInputSchema = v.object({
 	title: boundedText(1_000),
 	body: boundedText(20_000),
 	model: nonEmptyString,
+	thinkingLevel: v.optional(thinkingLevelSchema),
 	skill: skillSnapshotSchema,
 });
 
@@ -62,6 +64,7 @@ export const purpleTeamInputSchema = v.object({
 	blueSummary: boundedText(8_000),
 	blueApproach: boundedText(8_000),
 	model: nonEmptyString,
+	thinkingLevel: v.optional(thinkingLevelSchema),
 	skill: skillSnapshotSchema,
 });
 

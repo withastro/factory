@@ -36,7 +36,7 @@ import { getTriageSandbox, REPO_DIR, TRIAGE_DIR } from '../sandbox.ts';
  */
 export function TriagePipeline() {
 	const input = useInitialData<TriagePipelineInput>();
-	useModel(input.model, { thinkingLevel: 'high' });
+	useModel(input.model, { thinkingLevel: input.thinkingLevel ?? 'high' });
 
 	useSandbox(
 		cloudflareSandbox(

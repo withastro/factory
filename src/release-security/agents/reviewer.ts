@@ -32,7 +32,7 @@ import { ensureReleaseSecurityWorkspace } from '../workspace.ts';
 
 export function ReleaseSecurityReviewer() {
 	const input = useInitialData<ReleaseSecurityAgentInput>();
-	useModel(input.model, { thinkingLevel: 'high' });
+	useModel(input.model, { thinkingLevel: input.thinkingLevel ?? 'high' });
 	useSkill(releaseSecuritySkill);
 
 	if (input.mode === 'release') {

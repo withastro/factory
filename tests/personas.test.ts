@@ -35,6 +35,7 @@ describe('persona configuration', () => {
 				login: 'astro-author',
 				skill: undefined,
 				model: CODE_MODEL,
+				thinkingLevel: 'high',
 				maxRounds: DEFAULT_AUTHOR_MAX_ROUNDS,
 			},
 		});
@@ -66,6 +67,7 @@ personas:
 				login: DEFAULT_PERSONA_LOGINS.author,
 				skill: undefined,
 				model: CODE_MODEL,
+				thinkingLevel: 'high',
 				maxRounds: DEFAULT_AUTHOR_MAX_ROUNDS,
 			},
 		});
