@@ -134,4 +134,30 @@ describe('reviewer persona trigger', () => {
 			loadReviewSetup(client, trigger('assigned')),
 		).resolves.toMatchObject({ outcome: 'ready' });
 	});
+
+	it('reviews the live head when the webhook snapshot trails a push', async () => {
+		const liveHead = 'c'.repeat(40);
+		const { client } = createClient({
+			requested_reviewers: [{ login: 'astro-reviewer' }],
+		});
+		vi.mocked(client.rest.pulls.get).mockResolvedValueOnce({
+			data: {
+				state: 'open',
+				head: { sha: liveHead },
+				title: 'Review this change',
+				body: null,
+				labels: [],
+				requested_reviewers: [{ login: 'astro-reviewer' }],
+				assignees: [],
+			},
+		} as never);
+
+		const setup = await loadReviewSetup(client, trigger());
+
+		expect(setup.outcome).toBe('ready');
+		if (setup.outcome === 'ready') {
+			expect(setup.agentInput.headSha).toBe(liveHead);
+			expect(setup.agentInput.baseSha).toBe(BASE_SHA);
+		}
+	});
 });
