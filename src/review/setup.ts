@@ -82,7 +82,15 @@ export async function loadReviewSetup(
 	if (pull.data.state !== 'open') {
 		return { outcome: 'stale', reason: 'The pull request is no longer open.' };
 	}
-	if (pull.data.head.sha !== trigger.headSha) {
+	// A label is applied to a specific commit, so a label-triggered review of
+	// a moved head is stale. A persona's review request or assignment applies
+	// to the pull request, and the webhook's snapshot can trail a push made
+	// seconds earlier: the author persona pushes, then immediately requests a
+	// review, and GitHub's `review_requested` payload still names the previous
+	// head. Rejecting that dropped the review while the request stayed pending,
+	// so persona reviews take the live head instead.
+	const headSha = trigger.persona ? pull.data.head.sha : trigger.headSha;
+	if (!trigger.persona && pull.data.head.sha !== trigger.headSha) {
 		return {
 			outcome: 'stale',
 			reason: 'The pull request head changed before review started.',
@@ -161,7 +169,7 @@ export async function loadReviewSetup(
 			repo: trigger.repo,
 			pullNumber: trigger.pullNumber,
 			baseSha: trigger.baseSha,
-			headSha: trigger.headSha,
+			headSha,
 			title: pull.data.title,
 			body: pull.data.body ?? '',
 			...(trigger.persona ? {} : { triggerLabel: config.trigger.label }),

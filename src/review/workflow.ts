@@ -97,8 +97,19 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 		);
 
 		if (setup.outcome !== 'ready') {
+			console.warn(
+				`[factory] Review of ${trigger.owner}/${trigger.repo}#${trigger.pullNumber} not started (${setup.outcome}): ${setup.reason}`,
+			);
 			await finishCoordination();
 			return setup;
+		}
+		// Persona-triggered reviews take the live head, which can be newer than
+		// the webhook's snapshot; everything below reviews and publishes it.
+		const headSha = setup.agentInput.headSha;
+		if (headSha !== trigger.headSha) {
+			console.info(
+				`[factory] Review of ${trigger.owner}/${trigger.repo}#${trigger.pullNumber} uses live head ${headSha}; the trigger named ${trigger.headSha}.`,
+			);
 		}
 
 		const unresolvedReviewThreads = await step.do(
@@ -157,7 +168,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 			owner: trigger.owner,
 			repo: trigger.repo,
 			pullNumber: trigger.pullNumber,
-			headSha: trigger.headSha,
+			headSha,
 			deliveryId: trigger.deliveryId,
 		};
 		const completeCheck = async (checkRunId?: number) => {
@@ -206,7 +217,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 				'review',
 				trigger.repositoryId,
 				trigger.pullNumber,
-				trigger.headSha,
+				headSha,
 				trigger.deliveryId,
 			].join(':'),
 		});
@@ -220,7 +231,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 					body: 'Run the resolved review skill for this pull request.',
 					attributes: {
 						deliveryId: trigger.deliveryId,
-						headSha: trigger.headSha,
+						headSha,
 					},
 				},
 			}),
@@ -277,7 +288,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 						owner: trigger.owner,
 						repo: trigger.repo,
 						pullNumber: trigger.pullNumber,
-						headSha: trigger.headSha,
+						headSha,
 						deliveryId: trigger.deliveryId,
 					},
 					result,
@@ -307,7 +318,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 							owner: trigger.owner,
 							repo: trigger.repo,
 							pullNumber: trigger.pullNumber,
-							headSha: trigger.headSha,
+							headSha,
 							deliveryId: trigger.deliveryId,
 						},
 						unresolvedReviewThreads,

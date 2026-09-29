@@ -43,6 +43,40 @@ export interface PullRef {
 }
 
 /**
+ * Wait until GitHub reports `sha` as the pull request's head, so a review
+ * requested right after a push applies to that commit. GitHub updates a pull
+ * request's head asynchronously after a push, and a `review_requested`
+ * webhook sent in between carries the previous head. Returns whether the head
+ * matched; callers proceed either way, since the reviewer also reads the live
+ * head.
+ */
+export async function waitForPullHead(
+	client: InstallationClient,
+	pull: PullRef,
+	sha: string,
+	options: { attempts?: number; delayMs?: number } = {},
+): Promise<boolean> {
+	const attempts = options.attempts ?? 10;
+	const delayMs = options.delayMs ?? 1_000;
+	const expected = sha.toLowerCase();
+	for (let attempt = 1; attempt <= attempts; attempt++) {
+		const { data } = await client.rest.pulls.get({
+			owner: pull.owner,
+			repo: pull.repo,
+			pull_number: pull.pullNumber,
+		});
+		if (data.head.sha.toLowerCase() === expected) return true;
+		if (attempt < attempts) {
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
+	console.warn(
+		`GitHub did not report ${sha} as the head of ${pull.owner}/${pull.repo}#${pull.pullNumber} after ${attempts} checks; requesting reviews anyway.`,
+	);
+	return false;
+}
+
+/**
  * Request reviews from `logins`, skipping any GitHub refuses (no access, the
  * pull request's own author). Returns the logins actually requested.
  */

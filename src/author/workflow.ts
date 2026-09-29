@@ -15,7 +15,11 @@ import {
 } from '../github/client.ts';
 import { upsertIssueComment } from '../github/issues.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
-import { handOffToHuman, requestReviews } from '../personas/handoff.ts';
+import {
+	handOffToHuman,
+	requestReviews,
+	waitForPullHead,
+} from '../personas/handoff.ts';
 import { formatErrorWithCauses } from '../triage/failure.ts';
 import {
 	commitAndPushFastForward,
@@ -589,23 +593,27 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 		const reviewersRequested =
 			push.kind === 'failed'
 				? []
-				: await step.do('request reviews again', STEP_RETRIES, async () =>
-						requestReviews(
-							await client(),
-							{
-								owner: params.owner,
-								repo: params.repo,
-								pullNumber: params.pullNumber,
-							},
-							reviewersToRequest({
-								// Absent from rounds loaded before this field existed.
-								changeRequests: work.changeRequests ?? [],
-								pushed: push.kind === 'pushed',
-								reviewerLogin: round.reviewerLogin ?? undefined,
-								pullAuthor: round.pullAuthor ?? undefined,
-							}),
-						),
-					);
+				: await step.do('request reviews again', STEP_RETRIES, async () => {
+						const api = await client();
+						const ref = {
+							owner: params.owner,
+							repo: params.repo,
+							pullNumber: params.pullNumber,
+						};
+						const logins = reviewersToRequest({
+							// Absent from rounds loaded before this field existed.
+							changeRequests: work.changeRequests ?? [],
+							pushed: push.kind === 'pushed',
+							reviewerLogin: round.reviewerLogin ?? undefined,
+							pullAuthor: round.pullAuthor ?? undefined,
+						});
+						// Request the review only once GitHub shows the pushed commit
+						// as the head, so the review request names it.
+						if (push.kind === 'pushed' && logins.length > 0) {
+							await waitForPullHead(api, ref, push.sha);
+						}
+						return requestReviews(api, ref, logins);
+					});
 
 		await step.do('post author round summary', STEP_RETRIES, async () => {
 			const api = await client();
