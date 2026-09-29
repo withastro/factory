@@ -9,7 +9,6 @@ import {
 	useSandbox,
 	useTool,
 } from '@flue/runtime';
-import { cloudflareSandbox } from '@flue/runtime/cloudflare';
 import type { WorkerEnv } from '../../env.ts';
 import {
 	commentResultSchema,
@@ -22,7 +21,12 @@ import {
 	triagePipelineInputSchema,
 	verifyResultSchema,
 } from '../pipeline-contracts.ts';
-import { getTriageSandbox, REPO_DIR, TRIAGE_DIR } from '../sandbox.ts';
+import {
+	getTriageSandbox,
+	REPO_DIR,
+	TRIAGE_DIR,
+	triageAgentSandbox,
+} from '../sandbox.ts';
 
 /**
  * The triage pipeline agent: one conversation per triage run, working in a
@@ -39,7 +43,7 @@ export function TriagePipeline() {
 	useModel(input.model, { thinkingLevel: input.thinkingLevel ?? 'high' });
 
 	useSandbox(
-		cloudflareSandbox(
+		triageAgentSandbox(
 			getTriageSandbox(env as unknown as WorkerEnv, input.sandboxId),
 		),
 		{ cwd: REPO_DIR },

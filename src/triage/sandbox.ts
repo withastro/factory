@@ -19,13 +19,18 @@
  */
 
 import { getSandbox, type Sandbox } from '@cloudflare/sandbox';
+import type { SandboxFactory } from '@flue/runtime';
+import { cloudflareSandbox } from '@flue/runtime/cloudflare';
 import type { WorkerEnv } from '../env.ts';
 import type { SkillSnapshot } from '../github/skill.ts';
 import {
+	agentCommandTimeoutNote,
 	assertGitRef,
 	assertRepoIdentifier,
+	boundAgentCommand,
 	checkoutCommandScript,
 	commandStageLabel,
+	configureCheckoutScript,
 	REPO_DIR,
 	redactToken,
 	shellQuote,
@@ -78,6 +83,38 @@ export interface WorkspaceSetup {
  * the fix branch checked out, skill files seeded, and scratch paths excluded
  * from git.
  */
+/**
+ * Flue's Cloudflare sandbox tools for the pipeline agent, with a time limit
+ * on every command. Flue's bash tool only bounds a command when the model
+ * passes `timeout`, so without this a single stuck command can run until the
+ * whole submission times out.
+ */
+export function triageAgentSandbox(sandbox: TriageSandbox): SandboxFactory {
+	const base = cloudflareSandbox(sandbox);
+	return {
+		...base,
+		async createSandbox(createOptions) {
+			const environment = await base.createSandbox(createOptions);
+			return {
+				...environment,
+				async exec(command, execOptions) {
+					const bounded = boundAgentCommand(command, execOptions?.timeoutMs);
+					const result = await environment.exec(bounded.command, {
+						...execOptions,
+						timeoutMs: bounded.timeoutMs,
+					});
+					if (result.exitCode !== 124) return result;
+					const note = agentCommandTimeoutNote(bounded.seconds);
+					return {
+						...result,
+						stderr: result.stderr ? `${result.stderr}\n${note}` : note,
+					};
+				},
+			};
+		},
+	};
+}
+
 export async function setupTriageWorkspace(
 	sandbox: TriageSandbox,
 	setup: WorkspaceSetup,
@@ -119,15 +156,10 @@ export async function setupTriageWorkspace(
 	await execOrThrow(
 		sandbox,
 		'configure',
-		[
-			`cd ${REPO_DIR}`,
-			`git config user.name ${shellQuote('factory[bot]')}`,
-			`git config user.email ${shellQuote('factory[bot]@users.noreply.github.com')}`,
-			`git checkout -B ${shellQuote(setup.fixBranch)}`,
-			// A private checkout is self-contained; remove the remote so the
-			// agent has nothing to fetch from or push to.
-			...(setup.cloneToken ? ['git remote remove origin'] : []),
-		].join(' && '),
+		configureCheckoutScript({
+			fixBranch: setup.fixBranch,
+			removeOrigin: Boolean(setup.cloneToken),
+		}),
 		60,
 	);
 
