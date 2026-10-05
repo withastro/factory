@@ -61,7 +61,54 @@ review:
 				labels: { ...DEFAULT_TRIAGE_LABELS },
 			},
 			releaseSecurity: { thinkingLevel: 'high' },
+			advisories: {
+				enabled: true,
+				skill: undefined,
+				model: CODE_MODEL,
+				thinkingLevel: 'high',
+			},
 		});
+	});
+
+	it('enables advisory triage by default with the triage model', () => {
+		expect(defaultFactoryConfig().advisories).toEqual({
+			enabled: true,
+			skill: undefined,
+			model: CODE_MODEL,
+			thinkingLevel: 'high',
+		});
+		const config = parseFactoryConfig(`
+version: 1
+triage:
+  model: anthropic/claude-opus-5-5
+`);
+		expect(config.advisories.enabled).toBe(true);
+		expect(config.advisories.model).toBe(config.triage.model);
+	});
+
+	it('parses advisory triage overrides', () => {
+		const config = parseFactoryConfig(`
+version: 1
+triage:
+  model: anthropic/claude-opus-5-5
+advisories:
+  skill: .agents/skills/astro-advisory-triage
+  model: anthropic/claude-sonnet-4-6
+  thinkingLevel: xhigh
+`);
+		expect(config.advisories).toEqual({
+			enabled: true,
+			skill: '.agents/skills/astro-advisory-triage',
+			model: 'cloudflare-ai-gateway/claude-sonnet-4-6',
+			thinkingLevel: 'xhigh',
+		});
+		expect(
+			parseFactoryConfig('version: 1\nadvisories:\n  enabled: false\n')
+				.advisories.enabled,
+		).toBe(false);
+		expect(() =>
+			parseFactoryConfig('version: 1\nadvisories:\n  skill: skills/advisory\n'),
+		).toThrow();
 	});
 
 	it('uses the bundled review skill when no override is configured', () => {

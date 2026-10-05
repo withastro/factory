@@ -20,12 +20,16 @@
  * - `issues.assigned`,                → persona assignment (the assignee is
  *   `pull_request.assigned`,            resolved against the repository's
  *   `pull_request.review_requested`     configured personas later)
+ * - `repository_advisory.reported`    → advisory triage (a private
+ *                                        vulnerability report was submitted)
  * - human activity on a Factory       → code author (whether the author
  *   pull request: reviews, review        persona owns the pull request is
  *   comments, comments, and failed       checked later against live state)
  *   check suites / workflow runs
  */
 
+import type { AdvisoryWorkflowParams } from './advisory/contracts.ts';
+import { GHSA_ID_PATTERN } from './advisory/contracts.ts';
 import { isBotAuthor } from './github/bots.ts';
 import { RELEASE_SECURITY_CHECK_NAMES } from './release-security/checks.ts';
 import {
@@ -107,6 +111,7 @@ export type Dispatch =
 	| { kind: 'persona-assignment'; params: PersonaAssignmentIntent }
 	| { kind: 'author-activity'; params: AuthorActivityIntent }
 	| { kind: 'triage'; params: TriageWorkflowParams }
+	| { kind: 'advisory'; params: AdvisoryWorkflowParams }
 	| { kind: 'release-security'; params: ReleaseSecurityWorkflowParams }
 	| {
 			kind: 'release-security-rerequest';
@@ -179,6 +184,7 @@ interface WebhookPayload {
 	comment?: {
 		user?: WebhookUser | null;
 	};
+	repository_advisory?: { ghsa_id?: string };
 }
 
 interface WebhookUser {
@@ -242,6 +248,10 @@ export function routeDelivery(
 		repositoryContext,
 	);
 	if (authorActivity) return authorActivity;
+
+	if (eventName === 'repository_advisory') {
+		return routeRepositoryAdvisory(payload, repositoryContext);
+	}
 
 	if (eventName === 'pull_request' && payload.action === 'labeled') {
 		const pull = payload.pull_request;
@@ -391,6 +401,30 @@ function personaAssignment(
 		kind: 'persona-assignment',
 		params: { ...context, login, signal, subject },
 	};
+}
+
+/**
+ * A privately reported vulnerability. Only new reports are triaged;
+ * publication is a maintainer action that needs no triage.
+ */
+function routeRepositoryAdvisory(
+	payload: WebhookPayload,
+	context: RepositoryContext,
+): Dispatch {
+	if (payload.action !== 'reported') {
+		return {
+			kind: 'none',
+			reason: `Unhandled repository_advisory action: ${payload.action}.`,
+		};
+	}
+	const ghsaId = payload.repository_advisory?.ghsa_id;
+	if (!ghsaId || !GHSA_ID_PATTERN.test(ghsaId)) {
+		return {
+			kind: 'none',
+			reason: 'The advisory delivery has no valid GHSA id.',
+		};
+	}
+	return { kind: 'advisory', params: { ...context, ghsaId } };
 }
 
 const FAILED_CONCLUSIONS = new Set(['failure', 'timed_out']);

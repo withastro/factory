@@ -5,6 +5,7 @@ import {
 	adversaryWorkflowParamsSchema,
 } from '../adversary/contracts.ts';
 import { matchesAdversaryTrigger } from '../adversary/setup.ts';
+import { advisoryCoordinatorKey } from '../advisory/contracts.ts';
 import {
 	type AuthorWorkflowParams,
 	authorCoordinatorKey,
@@ -75,6 +76,18 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 				return Response.json({
 					accepted: true,
 					capability: 'triage',
+					...admission,
+				});
+			}
+			case 'advisory': {
+				const coordinator = c.env.ADVISORY_COORDINATOR.getByName(
+					advisoryCoordinatorKey(dispatch.params),
+				);
+				const admission = await coordinator.enqueue(dispatch.params);
+				logAdmitted(delivery, 'advisory', admission.disposition);
+				return Response.json({
+					accepted: true,
+					capability: 'advisory',
 					...admission,
 				});
 			}
@@ -493,6 +506,11 @@ function routedTarget(dispatch: Dispatch): Record<string, unknown> {
 				issueNumber: dispatch.params.issueNumber,
 				issueAction: dispatch.params.issueAction,
 			};
+		case 'advisory':
+			return {
+				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
+				ghsaId: dispatch.params.ghsaId,
+			};
 		case 'release-security':
 			return {
 				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
@@ -519,6 +537,7 @@ function logAdmitted(
 	capability:
 		| 'review'
 		| 'triage'
+		| 'advisory'
 		| 'release-security'
 		| 'adversary'
 		| 'author'
