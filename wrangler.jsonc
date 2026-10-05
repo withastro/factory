@@ -27,7 +27,8 @@
 		}
 	],
 	"vars": {
-		"SANDBOX_TRANSPORT": "rpc"
+		"SANDBOX_TRANSPORT": "rpc",
+		"DISCORD_SECURITY_CHANNEL_ID": "1432493454784462970"
 	},
 	"containers": [
 		{
@@ -70,6 +71,10 @@
 			{
 				"name": "RELEASE_SECURITY_SANDBOX",
 				"class_name": "Sandbox"
+			},
+			{
+				"name": "ADVISORY_COORDINATOR",
+				"class_name": "AdvisoryCoordinator"
 			}
 		]
 	},
@@ -98,6 +103,11 @@
 			"name": "factory-release-security",
 			"binding": "RELEASE_SECURITY_WORKFLOW",
 			"class_name": "ReleaseSecurityWorkflow"
+		},
+		{
+			"name": "factory-advisory",
+			"binding": "ADVISORY_WORKFLOW",
+			"class_name": "AdvisoryWorkflow"
 		}
 	],
 	"observability": {
@@ -143,6 +153,10 @@
 		{
 			"tag": "v5",
 			"new_sqlite_classes": ["FlueCodeAuthorAgent", "AuthorCoordinator"]
+		},
+		{
+			"tag": "v6",
+			"new_sqlite_classes": ["FlueAdvisoryTriagerAgent", "AdvisoryCoordinator"]
 		}
 	]
 }

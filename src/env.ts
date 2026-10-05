@@ -1,6 +1,8 @@
 import type { Sandbox } from '@cloudflare/sandbox';
 import type { AdversaryWorkflowParams } from './adversary/contracts.ts';
 import type { AdversaryCoordinator } from './adversary/coordinator.ts';
+import type { AdvisoryWorkflowParams } from './advisory/contracts.ts';
+import type { AdvisoryCoordinator } from './advisory/coordinator.ts';
 import type { AuthorWorkflowParams } from './author/contracts.ts';
 import type { AuthorCoordinator } from './author/coordinator.ts';
 import type { ReleaseSecurityWorkflowParams } from './release-security/contracts.ts';
@@ -15,6 +17,10 @@ export interface WorkerEnv
 	GITHUB_APP_ID: string;
 	GITHUB_APP_PRIVATE_KEY: string;
 	GITHUB_WEBHOOK_SECRET: string;
+	/** Bot token for Factory's Discord application. */
+	DISCORD_BOT_TOKEN?: string;
+	ADVISORY_COORDINATOR: DurableObjectNamespace<AdvisoryCoordinator>;
+	ADVISORY_WORKFLOW: Workflow<AdvisoryWorkflowParams>;
 	ADVERSARY_COORDINATOR: DurableObjectNamespace<AdversaryCoordinator>;
 	ADVERSARY_SANDBOX: DurableObjectNamespace<Sandbox>;
 	ADVERSARY_WORKFLOW: Workflow<AdversaryWorkflowParams>;

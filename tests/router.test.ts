@@ -324,3 +324,56 @@ describe('webhook dispatch router', () => {
 		).toBe('none');
 	});
 });
+
+describe('repository advisory routing', () => {
+	const reported = (overrides: Record<string, unknown> = {}) => ({
+		action: 'reported',
+		installation,
+		repository,
+		repository_advisory: { ghsa_id: 'GHSA-ff38-p3qj-4pmf' },
+		...overrides,
+	});
+
+	it('routes a reported advisory to advisory triage', () => {
+		expect(
+			routeDelivery('repository_advisory', reported(), 'delivery-9'),
+		).toEqual({
+			kind: 'advisory',
+			params: {
+				deliveryId: 'delivery-9',
+				installationId: 123,
+				repositoryId: 456,
+				owner: 'withastro',
+				repo: 'astro',
+				defaultBranch: 'main',
+				repoIsPrivate: false,
+				ghsaId: 'GHSA-ff38-p3qj-4pmf',
+			},
+		});
+	});
+
+	it('ignores published advisories', () => {
+		expect(
+			routeDelivery(
+				'repository_advisory',
+				reported({ action: 'published' }),
+				'd',
+			),
+		).toEqual({
+			kind: 'none',
+			reason: 'Unhandled repository_advisory action: published.',
+		});
+	});
+
+	it('rejects a delivery without a valid GHSA id', () => {
+		for (const ghsa_id of [undefined, '', 'CVE-2026-0001', 'GHSA-../x']) {
+			expect(
+				routeDelivery(
+					'repository_advisory',
+					reported({ repository_advisory: { ghsa_id } }),
+					'd',
+				).kind,
+			).toBe('none');
+		}
+	});
+});

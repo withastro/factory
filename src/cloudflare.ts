@@ -6,6 +6,8 @@
 export { Sandbox } from '@cloudflare/sandbox';
 export { AdversaryCoordinator } from './adversary/coordinator.ts';
 export { AdversaryWorkflow } from './adversary/workflow.ts';
+export { AdvisoryCoordinator } from './advisory/coordinator.ts';
+export { AdvisoryWorkflow } from './advisory/workflow.ts';
 export { AuthorCoordinator } from './author/coordinator.ts';
 export { AuthorWorkflow } from './author/workflow.ts';
 export { ReleaseSecurityCoordinator } from './release-security/coordinator.ts';

@@ -35,13 +35,15 @@ GitHub webhooks ─→ Hono ingress (signature verification)
                         ├→ AdversaryCoordinator DO (one per PR) ─→ AdversaryWorkflow ─→ BlueTeam / PurpleTeam agents
                         ├→ TriageCoordinator DO (one per issue) ─→ TriageWorkflow ─→ FixVerifier / RetriageJudge agents
                         ├→ AuthorCoordinator DO (one per PR) ─→ AuthorWorkflow ─→ CodeAuthor agent (one conversation per PR)
+                        ├→ AdvisoryCoordinator DO (one per advisory) ─→ AdvisoryWorkflow ─→ AdvisoryTriager agent ─→ Discord
                         └→ ReleaseSecurityCoordinator DO (one per PR) ─→ ReleaseSecurityWorkflow ─→ ReleaseSecurityReviewer agent
 ```
 
 - **Router** (`src/router.ts`): deterministic and pure. `pull_request.labeled`
   → review; `issues.opened|reopened|closed` and human `issue_comment.created`
   → triage; `issues.assigned`, `pull_request.assigned`, and
-  `pull_request.review_requested` → [personas](#personas); human reviews,
+  `pull_request.review_requested` → [personas](#personas);
+  `repository_advisory.reported` → advisory triage; human reviews,
   review comments, comments, and failed checks on Factory pull requests → the
   code author. Bot activity is dropped at the door to prevent self-trigger
   loops.
@@ -210,6 +212,30 @@ Flue's private durable agent state also retains the structured model output.
 GitHub receives only a check result and a sanitized comment containing the
 verdict and reviewed SHA. `BLOCK` and `INCOMPLETE` both fail the check.
 
+### Advisory triage (`src/advisory/`)
+
+When someone privately reports a vulnerability (`repository_advisory.reported`),
+Factory triages the report and posts the result to a private Discord channel.
+GitHub's API can't comment on an advisory, so Discord is where maintainers read
+it; nothing is ever said to the reporter automatically.
+
+The bundled `skills/advisory-triage/` skill starts from the assumption that the
+report is not a vulnerability and requires proof that it can be exploited in a
+realistic application. The agent works in a credential-free triage sandbox with
+the repository's default branch installed and built (using the `triage`
+section's `installCommand` and `buildCommand`), builds a reproduction, and
+checks the repository's other advisories for duplicates and precedent. It
+doesn't fix anything; when a change is warranted, it writes a fix brief another
+agent can implement, worded as an ordinary bug fix.
+
+In Discord, an announcement is posted when the report arrives and a thread is
+started from it. The thread receives the verdict (`vulnerability`,
+`not-vulnerability`, `duplicate`, or `needs-information`) with the full
+assessment, a draft reply to the reporter, and the fix brief attached, followed
+by the reply inline so it can be copied into the advisory. The announcement is
+edited to show the verdict. Mentions are disabled on every message. The complete
+result is also stored in the `PRIVATE_REPORTS` R2 bucket under `advisories/`.
+
 ## Personas
 
 Personas are assignable GitHub identities in front of capabilities. You
@@ -338,10 +364,16 @@ personas:
 
 releaseSecurity:
   # thinkingLevel: high # release-security reviewer; default: high
+
+advisories:
+  # enabled: true # triage privately reported advisories (needs Discord; see GitHub App setup)
+  # skill: .agents/skills/advisory-triage # overrides the bundled default skill
+  # model: cloudflare-ai-gateway/claude-opus-4-6 # default: triage.model
+  # thinkingLevel: high # default: high
 ```
 
 Skills resolve as **bundled default, repository override wins**: the factory
-ships generic adversary, review, and triage skills; repository overrides live
+ships generic adversary, review, triage, and advisory triage skills; repository overrides live
 under `.agents/skills/`. Blue and purple have separate adversary overrides, so
 implementation guidance does not leak into judging guidance. A purple override
 may add domain-specific criteria but cannot weaken the built-in correctness and safety gate. The
@@ -535,6 +567,7 @@ Three deliberate design choices:
   release workflows), Repository security advisories (read).
 - **Events**: Pull request, Check run, Issues, Issue comment. The code author
   persona also needs Pull request review, Check suite, and Workflow run.
+  Advisory triage needs Repository advisory.
 - **Webhook URL**: `https://<worker>/channels/github/webhook`.
 - **Secrets** (`wrangler secret put` / `.dev.vars`): `GITHUB_APP_ID`,
   `GITHUB_APP_PRIVATE_KEY` (PKCS#8 — convert with
@@ -543,6 +576,13 @@ Three deliberate design choices:
   `FACTORY_AI_GATEWAY_ID`. The gateway connection values deliberately use
   Factory-scoped names so Wrangler cannot mistake the remote gateway account
   or token for Factory's deployment credentials.
+
+Advisory triage posts to Discord as a bot. Create a Discord application with
+a private bot, add it to the server, and allow it to view, send messages,
+create public threads, send messages in threads, embed links, attach files,
+and read message history in the target channel. Set the channel id as the
+`DISCORD_SECURITY_CHANNEL_ID` variable in `wrangler.jsonc` and the bot token as
+the `DISCORD_BOT_TOKEN` secret. Without both, reported advisories are skipped.
 
 Public and private repositories are both supported. Public repositories get
 an anonymous blobless clone (the triage sandbox holds no credentials at all);

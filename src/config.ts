@@ -320,6 +320,14 @@ const factoryConfigSchema = v.object({
 	releaseSecurity: v.optional(
 		v.object({ thinkingLevel: v.optional(thinkingLevelSchema) }),
 	),
+	advisories: v.optional(
+		v.object({
+			enabled: v.optional(v.boolean()),
+			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+			model: v.optional(modelSchema),
+			thinkingLevel: v.optional(thinkingLevelSchema),
+		}),
+	),
 });
 
 function labelConfigShape() {
@@ -368,6 +376,21 @@ export interface PreviewReleaseConfig {
 	checkName: string;
 	checkApp: string;
 	allowedHosts: string[];
+}
+
+/**
+ * Triage of privately reported security advisories. On by default; it also
+ * needs a Discord destination configured on the Worker, since advisories
+ * can't be commented on through GitHub's API. The checkout is prepared with
+ * the triage section's install and build commands.
+ */
+export interface AdvisoriesConfig {
+	enabled: boolean;
+	/** Repository skill override; the bundled default skill is used when absent. */
+	skill: string | undefined;
+	/** `<provider>/<model>`; defaults to the triage pipeline's model. */
+	model: string;
+	thinkingLevel: ThinkingLevel;
 }
 
 export interface TriageConfig {
@@ -456,6 +479,7 @@ export interface FactoryConfig {
 	review: ReviewConfig | undefined;
 	triage: TriageConfig;
 	releaseSecurity: { thinkingLevel: ThinkingLevel };
+	advisories: AdvisoriesConfig;
 }
 
 /** Configuration used when the repository has no factory.yml at all. */
@@ -479,6 +503,12 @@ export function defaultFactoryConfig(): FactoryConfig {
 			labels: { ...DEFAULT_TRIAGE_LABELS },
 		},
 		releaseSecurity: { thinkingLevel: DEFAULT_THINKING_LEVEL },
+		advisories: {
+			enabled: true,
+			skill: undefined,
+			model: CODE_MODEL,
+			thinkingLevel: DEFAULT_THINKING_LEVEL,
+		},
 	};
 }
 
@@ -565,6 +595,14 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 		releaseSecurity: {
 			thinkingLevel:
 				config.releaseSecurity?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
+		},
+		advisories: {
+			enabled: config.advisories?.enabled ?? true,
+			skill: config.advisories?.skill
+				? validateSkillDirectory(config.advisories.skill)
+				: undefined,
+			model: config.advisories?.model ?? config.triage?.model ?? CODE_MODEL,
+			thinkingLevel: config.advisories?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
 		},
 	};
 }
