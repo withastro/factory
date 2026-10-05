@@ -19,14 +19,30 @@ const FENCE_LINE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 // A whole-body fence around Markdown, which models sometimes add to "show"
 // their summary as Markdown.
 const MARKDOWN_WRAPPER = /^(`{3,}|~{3,})[ \t]*(?:md|markdown)[ \t]*$/i;
+// The same with no info string. Review skills written for interactive use ask
+// for the report "as raw Markdown inside a single fenced code block", and the
+// model carries that fence into the summary it submits.
+const PLAIN_WRAPPER = /^(`{3,}|~{3,})[ \t]*$/;
+
+export interface ContainModelMarkdownOptions {
+	/**
+	 * Also unwrap a fence with no info string around the whole value. Only for
+	 * text that is a whole document, such as a review summary: a finding or
+	 * reply consisting of one plain code block is usually a real code snippet.
+	 */
+	unwrapPlainFence?: boolean;
+}
 
 interface OpenFence {
 	char: string;
 	length: number;
 }
 
-export function containModelMarkdown(value: string): string {
-	const lines = unwrapMarkdownFence(value).split('\n');
+export function containModelMarkdown(
+	value: string,
+	options: ContainModelMarkdownOptions = {},
+): string {
+	const lines = unwrapMarkdownFence(value, options).split('\n');
 	const contained: string[] = [];
 	let open: OpenFence | undefined;
 	for (const line of lines) {
@@ -63,10 +79,16 @@ function closesFence(open: OpenFence, marker: string, rest: string): boolean {
 }
 
 /** Drop a ```md fence wrapped around the whole value. */
-function unwrapMarkdownFence(value: string): string {
+function unwrapMarkdownFence(
+	value: string,
+	options: ContainModelMarkdownOptions,
+): string {
 	const lines = value.trim().split('\n');
 	if (lines.length < 2) return value;
-	const opening = MARKDOWN_WRAPPER.exec(lines[0]?.trim() ?? '');
+	const first = lines[0]?.trim() ?? '';
+	const opening =
+		MARKDOWN_WRAPPER.exec(first) ??
+		(options.unwrapPlainFence ? PLAIN_WRAPPER.exec(first) : null);
 	const closing = lines.at(-1)?.trim() ?? '';
 	const marker = opening?.[1];
 	if (

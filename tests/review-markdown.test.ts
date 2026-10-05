@@ -9,6 +9,26 @@ describe('containModelMarkdown', () => {
 		expect(containModelMarkdown('~~~~markdown\n# Title\n~~~~')).toBe('# Title');
 	});
 
+	it('unwraps a plain fence around a whole summary when asked', () => {
+		const summary = '```\n## Findings\n\nNo findings.\n\n## Review Status\n```';
+		expect(containModelMarkdown(summary, { unwrapPlainFence: true })).toBe(
+			'## Findings\n\nNo findings.\n\n## Review Status',
+		);
+		expect(
+			containModelMarkdown('~~~\n# Title\n~~~', { unwrapPlainFence: true }),
+		).toBe('# Title');
+	});
+
+	it('keeps a plain fenced snippet by default', () => {
+		const snippet = '```\nconst a = 1;\n```';
+		expect(containModelMarkdown(snippet)).toBe(snippet);
+	});
+
+	it('keeps a plain fence that does not wrap the whole summary', () => {
+		const value = 'Run this:\n\n```\npnpm test\n```';
+		expect(containModelMarkdown(value, { unwrapPlainFence: true })).toBe(value);
+	});
+
 	it('leaves fences around other languages alone', () => {
 		const value = '```ts\nconst a = 1;\n```';
 		expect(containModelMarkdown(value)).toBe(value);

@@ -96,7 +96,7 @@ export function formatAuthorRoundComment(input: {
 	const lines = [
 		`**Round ${input.round} of ${input.maxRounds}: ${heading}**`,
 		'',
-		containModelMarkdown(result.summary.trim()),
+		containModelMarkdown(result.summary.trim(), { unwrapPlainFence: true }),
 		'',
 	];
 	switch (push.kind) {
