@@ -73,6 +73,7 @@ export function PullRequestReviewer() {
 		`Allowed areas: ${input.areas.join(', ')}. Choose each finding's area using the skill's taxonomy and guidance.`,
 		'If the skill uses a classification outside the configured vocabulary, map it to the closest allowed value instead of inventing a new one.',
 		'Submit each finding title and body as content only, without a severity or area prefix.',
+		'The summary is published as rendered Markdown in a GitHub review. Submit it as plain Markdown, not wrapped in a code block, even if the skill says to return the report inside a fenced code block.',
 		'The publisher owns GitHub comment formatting and renders `[severity][area]`: message; this format takes precedence over any presentation format suggested by the skill.',
 		'Every inline finding must identify a changed path and a LEFT or RIGHT diff line.',
 		'Finish by calling submit_review_findings exactly once, including addressedThreadIds (an empty array when none are addressed). Do not merely describe the result in text.',

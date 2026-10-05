@@ -80,6 +80,23 @@ describe('GitHub diff locations', () => {
 		expect(body).toContain('<!-- marker -->');
 	});
 
+	it('renders a summary the skill wrapped in a plain code block', () => {
+		const body = formatReviewBody(
+			{
+				summary:
+					'```\n## Findings\n\nNo findings.\n\n## Review Status\n\nVerdict: ready to merge based on static review\n```',
+				findings: [],
+				addressedThreadIds: [],
+			},
+			[],
+			'<!-- marker -->',
+			'**Verdict: approved.**',
+		);
+
+		expect(body).toMatch(/^\*\*Verdict: approved\.\*\*\n\n## Findings\n/);
+		expect(body).not.toContain('```');
+	});
+
 	it('ends every review with the mandatory italic LLM disclosure', () => {
 		const body = formatReviewBody(
 			{ summary: 'No issues found.', findings: [], addressedThreadIds: [] },

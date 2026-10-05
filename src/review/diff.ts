@@ -103,7 +103,7 @@ export function formatReviewBody(
 ): string {
 	const sections = [
 		...(notice ? [notice] : []),
-		containModelMarkdown(result.summary.trim()),
+		containModelMarkdown(result.summary.trim(), { unwrapPlainFence: true }),
 	];
 	if (unanchored.length > 0) {
 		sections.push(
