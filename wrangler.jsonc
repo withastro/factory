@@ -28,8 +28,14 @@
 	],
 	"vars": {
 		"SANDBOX_TRANSPORT": "rpc",
-		"DISCORD_SECURITY_CHANNEL_ID": "1432493454784462970"
+		"DISCORD_SECURITY_CHANNEL_ID": "1432493454784462970",
+		"DISCORD_GUILD_ID": "",
+		"DISCORD_ALLOWED_ROLE_IDS": "",
+		"DISCORD_ASSISTANT_CHANNEL_IDS": "",
+		"DISCORD_REPOSITORY": "withastro/astro",
+		"DISCORD_PUBLIC_KEY": ""
 	},
+	"triggers": { "crons": ["* * * * *"] },
 	"containers": [
 		{
 			"class_name": "Sandbox",
@@ -75,6 +81,14 @@
 			{
 				"name": "ADVISORY_COORDINATOR",
 				"class_name": "AdvisoryCoordinator"
+			},
+			{
+				"name": "DISCORD_GATEWAY",
+				"class_name": "DiscordGateway"
+			},
+			{
+				"name": "DISCORD_THREAD_COORDINATOR",
+				"class_name": "DiscordThreadCoordinator"
 			}
 		]
 	},
@@ -108,6 +122,11 @@
 			"name": "factory-advisory",
 			"binding": "ADVISORY_WORKFLOW",
 			"class_name": "AdvisoryWorkflow"
+		},
+		{
+			"name": "factory-discord-thread",
+			"binding": "DISCORD_THREAD_WORKFLOW",
+			"class_name": "DiscordThreadWorkflow"
 		}
 	],
 	"observability": {
@@ -157,6 +176,14 @@
 		{
 			"tag": "v6",
 			"new_sqlite_classes": ["FlueAdvisoryTriagerAgent", "AdvisoryCoordinator"]
+		},
+		{
+			"tag": "v7",
+			"new_sqlite_classes": [
+				"FlueDiscordAssistantAgent",
+				"DiscordGateway",
+				"DiscordThreadCoordinator"
+			]
 		}
 	]
 }

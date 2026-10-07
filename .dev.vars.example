@@ -11,3 +11,5 @@ FACTORY_AI_GATEWAY_ID="replace-me"
 # Optional: advisory triage posts to Discord. DISCORD_SECURITY_CHANNEL_ID is a
 # wrangler.jsonc variable; the bot token is a secret.
 # DISCORD_BOT_TOKEN="replace-me"
+# Optional: the Discord assistant uses the same bot token. Its server, roles,
+# repository, and public key are wrangler.jsonc variables.
