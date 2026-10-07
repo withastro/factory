@@ -328,14 +328,6 @@ const factoryConfigSchema = v.object({
 			thinkingLevel: v.optional(thinkingLevelSchema),
 		}),
 	),
-	discord: v.optional(
-		v.object({
-			enabled: v.optional(v.boolean()),
-			skill: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
-			model: v.optional(modelSchema),
-			thinkingLevel: v.optional(thinkingLevelSchema),
-		}),
-	),
 });
 
 function labelConfigShape() {
@@ -393,22 +385,6 @@ export interface PreviewReleaseConfig {
  * the triage section's install and build commands.
  */
 export interface AdvisoriesConfig {
-	enabled: boolean;
-	/** Repository skill override; the bundled default skill is used when absent. */
-	skill: string | undefined;
-	/** `<provider>/<model>`; defaults to the triage pipeline's model. */
-	model: string;
-	thinkingLevel: ThinkingLevel;
-}
-
-/**
- * The Discord assistant: maintainers mention Factory's bot in a Discord
- * thread to ask about the codebase, then have it file an issue or open a
- * pull request. On by default; it also needs the Worker's Discord settings,
- * which pick the repository the assistant works on. The checkout is prepared
- * with the triage section's install and build commands.
- */
-export interface DiscordAssistantConfig {
 	enabled: boolean;
 	/** Repository skill override; the bundled default skill is used when absent. */
 	skill: string | undefined;
@@ -504,7 +480,6 @@ export interface FactoryConfig {
 	triage: TriageConfig;
 	releaseSecurity: { thinkingLevel: ThinkingLevel };
 	advisories: AdvisoriesConfig;
-	discord: DiscordAssistantConfig;
 }
 
 /** Configuration used when the repository has no factory.yml at all. */
@@ -529,12 +504,6 @@ export function defaultFactoryConfig(): FactoryConfig {
 		},
 		releaseSecurity: { thinkingLevel: DEFAULT_THINKING_LEVEL },
 		advisories: {
-			enabled: true,
-			skill: undefined,
-			model: CODE_MODEL,
-			thinkingLevel: DEFAULT_THINKING_LEVEL,
-		},
-		discord: {
 			enabled: true,
 			skill: undefined,
 			model: CODE_MODEL,
@@ -634,14 +603,6 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 				: undefined,
 			model: config.advisories?.model ?? config.triage?.model ?? CODE_MODEL,
 			thinkingLevel: config.advisories?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
-		},
-		discord: {
-			enabled: config.discord?.enabled ?? true,
-			skill: config.discord?.skill
-				? validateSkillDirectory(config.discord.skill)
-				: undefined,
-			model: config.discord?.model ?? config.triage?.model ?? CODE_MODEL,
-			thinkingLevel: config.discord?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
 		},
 	};
 }

@@ -20,18 +20,12 @@ importers:
       '@earendil-works/pi-ai':
         specifier: ^0.87.1
         version: 0.87.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
-      '@flue/discord':
-        specifier: ^2.2.2
-        version: 2.2.2(@flue/runtime@2.2.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@7.0.2)(ws@8.21.3)(zod@4.4.3))
       '@flue/github':
         specifier: ^2.2.2
         version: 2.2.2(@flue/runtime@2.2.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@7.0.2)(ws@8.21.3)(zod@4.4.3))
       '@flue/runtime':
         specifier: ^2.2.2
         version: 2.2.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@7.0.2)(ws@8.21.3)(zod@4.4.3)
-      discord-api-types:
-        specifier: 0.38.52
-        version: 0.38.52
       hono:
         specifier: 4.12.32
         version: 4.12.32
@@ -761,12 +755,6 @@ packages:
     resolution: {integrity: sha512-aOIdbXCizS9kr0CHUre5V6QEWYVJsWd2sYLd//hp1ZbVNoYGehSfYUnYv+9f0mdfw78UjjO1vc6h4+nIJ3yDfA==}
     engines: {node: '>=22.19.0'}
     hasBin: true
-
-  '@flue/discord@2.2.2':
-    resolution: {integrity: sha512-azeNGEASWyT3ZjLtjjYqQ0LbaHVcTjy25rVqy5MG1649F8M4QGaDttILwh/DFQE02b/Ry7bdkhdsYvy4fmCvxQ==}
-    engines: {node: '>=22.19.0'}
-    peerDependencies:
-      '@flue/runtime': ^2.2.2
 
   '@flue/github@2.2.2':
     resolution: {integrity: sha512-1Z2UvI0KxJR+I+cxpseKfuXOVQrrlQbjHlxLG6YTKGu13AKdqAsQ7CvfMlFIJrvqa1//mBZJca8C+kcnHo6xcw==}
@@ -1754,9 +1742,6 @@ packages:
   diff@8.0.4:
     resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
     engines: {node: '>=0.3.1'}
-
-  discord-api-types@0.38.52:
-    resolution: {integrity: sha512-uwe9EKfbjsmgWc2fdFjvDbj+dQqx3lp7wqDCmIha0jInuU+xeQjkCK9tMMn+p7RXfdVQORCInq4cD3U2ymDmyg==}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -3553,12 +3538,6 @@ snapshots:
       - yaml
       - zod
 
-  '@flue/discord@2.2.2(@flue/runtime@2.2.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@7.0.2)(ws@8.21.3)(zod@4.4.3))':
-    dependencies:
-      '@flue/runtime': 2.2.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@7.0.2)(ws@8.21.3)(zod@4.4.3)
-      discord-api-types: 0.38.52
-      hono: 4.12.32
-
   '@flue/github@2.2.2(@flue/runtime@2.2.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@7.0.2)(ws@8.21.3)(zod@4.4.3))':
     dependencies:
       '@flue/runtime': 2.2.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(typescript@7.0.2)(ws@8.21.3)(zod@4.4.3)
@@ -4465,8 +4444,6 @@ snapshots:
   detect-libc@2.1.2: {}
 
   diff@8.0.4: {}
-
-  discord-api-types@0.38.52: {}
 
   dunder-proto@1.0.1:
     dependencies:
