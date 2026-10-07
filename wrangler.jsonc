@@ -157,6 +157,22 @@
 		{
 			"tag": "v6",
 			"new_sqlite_classes": ["FlueAdvisoryTriagerAgent", "AdvisoryCoordinator"]
+		},
+		{
+			"tag": "v7",
+			"new_sqlite_classes": [
+				"FlueDiscordAssistantAgent",
+				"DiscordGateway",
+				"DiscordThreadCoordinator"
+			]
+		},
+		{
+			"tag": "v8",
+			"deleted_classes": [
+				"FlueDiscordAssistantAgent",
+				"DiscordGateway",
+				"DiscordThreadCoordinator"
+			]
 		}
 	]
 }
