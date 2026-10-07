@@ -37,6 +37,10 @@ GitHub webhooks ─→ Hono ingress (signature verification)
                         ├→ AuthorCoordinator DO (one per PR) ─→ AuthorWorkflow ─→ CodeAuthor agent (one conversation per PR)
                         ├→ AdvisoryCoordinator DO (one per advisory) ─→ AdvisoryWorkflow ─→ AdvisoryTriager agent ─→ Discord
                         └→ ReleaseSecurityCoordinator DO (one per PR) ─→ ReleaseSecurityWorkflow ─→ ReleaseSecurityReviewer agent
+
+Discord Gateway ─→ DiscordGateway DO (one WebSocket; @mentions by allowed roles)
+Discord buttons ─→ /channels/discord/interactions (signature + role check)
+                    └→ DiscordThreadCoordinator DO (one per thread) ─→ DiscordThreadWorkflow ─→ DiscordAssistant agent (one conversation per thread)
 ```
 
 - **Router** (`src/router.ts`): deterministic and pure. `pull_request.labeled`
@@ -236,6 +240,45 @@ by the reply inline so it can be copied into the advisory. The announcement is
 edited to show the verdict. Mentions are disabled on every message. The complete
 result is also stored in the `PRIVATE_REPORTS` R2 bucket under `advisories/`.
 
+### Discord assistant (`src/discord/`)
+
+Maintainers can bring Factory into a Discord discussion by mentioning the bot
+(`@Astro Factory where does this get normalized?`). The assistant reads the
+thread, answers with evidence from a checkout of the repository, and, when
+asked, drafts a GitHub issue or proposes a pull request for a maintainer to
+approve with a button.
+
+- **Who can use it.** Only members holding one of the roles in
+  `DISCORD_ALLOWED_ROLE_IDS` (for example Maintainer and Core). Everyone else's
+  mentions are ignored silently, and button clicks are checked again on the
+  interactions endpoint. `DISCORD_ASSISTANT_CHANNEL_IDS` optionally limits the
+  channels it answers in.
+- **One thread, one conversation.** A mention inside a thread uses that thread;
+  a mention in a text channel starts a thread from the message. Each thread has
+  one durable agent conversation, so the assistant remembers the discussion,
+  and one sandbox holding the repository's default branch, installed and built
+  with the `triage` section's commands. The sandbox sleeps after an hour idle
+  and is rebuilt on the next mention; the conversation survives that.
+- **Staying in the conversation.** The bot replies right away ("On it.", or
+  "Starting up a sandbox first…" when it has to rebuild), keeps the typing
+  indicator up while it works, says once that it's still working if something
+  runs long, and otherwise stays quiet until it has an answer.
+- **Issues.** Asked to file an issue, the assistant posts a draft with
+  **Create issue** and **Dismiss** buttons. Asking for changes produces a new
+  draft. Factory files the issue as the GitHub App, linking the thread.
+- **Pull requests.** Asked for a fix, it posts a plan with **Open PR** and
+  **Dismiss** buttons. Approving it queues a job: the assistant implements the
+  change on a fresh branch (`factory/discord-<id>`) and runs tests, then
+  Factory commits, pushes, opens the pull request, and hands it to the author
+  and reviewer personas, so the usual review loop takes over.
+- **Linked issues.** GitHub issues of the repository referenced in the thread
+  (`#123`, URLs) are staged in the sandbox for the assistant to read.
+
+Jobs in a thread run one at a time and in order. Mentions that arrive while
+the assistant is busy are answered together in its next turn; approved pull
+requests are never dropped. The agent never holds GitHub or Discord
+credentials: trusted workflow code posts its replies, files issues, and pushes.
+
 ## Personas
 
 Personas are assignable GitHub identities in front of capabilities. You
@@ -368,6 +411,12 @@ releaseSecurity:
 advisories:
   # enabled: true # triage privately reported advisories (needs Discord; see GitHub App setup)
   # skill: .agents/skills/advisory-triage # overrides the bundled default skill
+  # model: cloudflare-ai-gateway/claude-opus-4-6 # default: triage.model
+  # thinkingLevel: high # default: high
+
+discord:
+  # enabled: true # the Discord assistant (needs the Worker's Discord settings)
+  # skill: .agents/skills/discord-assistant # overrides the bundled default skill
   # model: cloudflare-ai-gateway/claude-opus-4-6 # default: triage.model
   # thinkingLevel: high # default: high
 ```
@@ -583,6 +632,24 @@ create public threads, send messages in threads, embed links, attach files,
 and read message history in the target channel. Set the channel id as the
 `DISCORD_SECURITY_CHANNEL_ID` variable in `wrangler.jsonc` and the bot token as
 the `DISCORD_BOT_TOKEN` secret. Without both, reported advisories are skipped.
+
+The Discord assistant uses the same bot. In the Discord developer portal:
+
+1. Under **Bot**, enable the **Message Content** privileged intent. Without
+   it the Gateway connection is refused (close code 4014).
+2. Set the **Interactions Endpoint URL** to
+   `https://<worker>/channels/discord/interactions`, and set
+   `DISCORD_PUBLIC_KEY` in `wrangler.jsonc` to the application's public key.
+3. Allow the bot to view channels, read message history, send messages,
+   create public threads, and send messages in threads wherever it should
+   answer.
+
+Then set the `wrangler.jsonc` variables: `DISCORD_GUILD_ID` (the server),
+`DISCORD_ALLOWED_ROLE_IDS` (comma-separated role ids allowed to use it),
+`DISCORD_REPOSITORY` (`owner/repo`; the GitHub App must be installed there),
+and optionally `DISCORD_ASSISTANT_CHANNEL_IDS`. The assistant is off until the
+server, roles, and repository are all set. A one-minute cron trigger keeps the
+Gateway connection up.
 
 Public and private repositories are both supported. Public repositories get
 an anonymous blobless clone (the triage sandbox holds no credentials at all);
