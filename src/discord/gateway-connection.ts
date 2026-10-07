@@ -13,8 +13,17 @@
 
 export const GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 
-/** GUILD_MESSAGES | MESSAGE_CONTENT. */
-export const GATEWAY_INTENTS = (1 << 9) | (1 << 15);
+/**
+ * GUILD_MESSAGES. Discord always includes the content of messages that
+ * mention the bot, which is all the Gateway needs to hear mentions.
+ *
+ * MESSAGE_CONTENT (`1 << 15`) would also let the assistant read the rest of
+ * a thread, but it's a privileged intent that needs Discord's review for
+ * this application. Until it's approved, the transcript only carries the
+ * messages that mention the bot. Requesting it before it's enabled makes
+ * Discord refuse the connection (close code 4014).
+ */
+export const GATEWAY_INTENTS = 1 << 9;
 
 const OP_DISPATCH = 0;
 const OP_HEARTBEAT = 1;

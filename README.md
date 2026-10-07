@@ -635,8 +635,13 @@ the `DISCORD_BOT_TOKEN` secret. Without both, reported advisories are skipped.
 
 The Discord assistant uses the same bot. In the Discord developer portal:
 
-1. Under **Bot**, enable the **Message Content** privileged intent. Without
-   it the Gateway connection is refused (close code 4014).
+1. Mentions work without any privileged intent: Discord always includes the
+   content of messages that mention the bot. To let the assistant read the
+   rest of a thread too, enable the **Message Content** privileged intent
+   under **Bot** (applications with many users need Discord's review first)
+   and add `MESSAGE_CONTENT` back to `GATEWAY_INTENTS` in
+   `src/discord/gateway-connection.ts`. Requesting it before it's enabled
+   makes Discord refuse the connection (close code 4014).
 2. Set the **Interactions Endpoint URL** to
    `https://<worker>/channels/discord/interactions`, and set
    `DISCORD_PUBLIC_KEY` in `wrangler.jsonc` to the application's public key.
