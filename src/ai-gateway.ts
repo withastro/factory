@@ -101,8 +101,8 @@ export function createFactoryAIGatewayProvider(): Provider {
 
 /**
  * Anthropic's id for Claude Opus 5.5. The gateway's native Anthropic endpoint
- * forwards the id verbatim, so it must be dashed; Flue registers the gateway's
- * dotted catalog ids (`claude-opus-4.6`) under their dashed form as well.
+ * forwards the id verbatim, so it must be dashed. pi-ai >= 1.x ships dashed
+ * gateway catalog ids; older catalogs used dotted ids (`claude-opus-5.5`).
  */
 export const GATEWAY_OPUS_5_5_MODEL_ID = 'claude-opus-5-5';
 const OPUS_5_5_CATALOG_IDS = [GATEWAY_OPUS_5_5_MODEL_ID, 'claude-opus-5.5'];
