@@ -3,8 +3,8 @@ name: astro-release-security
 description: Review an Astro Changesets release PR for vulnerabilities that should block publication. Use for release-blocking security review of withastro/astro release branches.
 license: BSD-3-Clause
 metadata:
-author: matthewp
-version: "2.0"
+  author: matthewp
+  version: "2.0"
 ---
 
 # Astro Release Security Review

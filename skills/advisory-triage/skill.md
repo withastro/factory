@@ -3,8 +3,8 @@ name: advisory-triage
 description: Triage a privately reported security advisory. Decide whether it describes a real, exploitable vulnerability, prove it with a working reproduction or explain why it can't be exploited, and hand maintainers an assessment, a draft reply to the reporter, and a fix brief another agent can implement.
 license: MIT
 metadata:
-author: matthewp
-version: "1.0"
+  author: matthewp
+  version: "1.0"
 ---
 
 # Advisory Triage
