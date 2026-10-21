@@ -30,7 +30,6 @@ Read `report.md` to understand the root cause, affected files, and suggested app
 **Skip if prerequisites unmet:** If the bug was not reproduced or was skipped, append "FIX SKIPPED: Not reproduced" and return `fixed: false`.
 
 **Low-confidence path:** If diagnosis confidence is `low` or no clear root cause was found, do NOT attempt a code fix. Instead:
-
 1. Identify the most likely area(s) of the codebase related to the issue
 2. If possible, write a failing test that demonstrates the expected behavior
 3. Add brief inline comments (prefixed `// TRIAGE:`) near relevant lines to help the implementor orient
@@ -59,7 +58,6 @@ Make changes in your project's source files. Follow these principles:
 <!-- CUSTOMIZE: Use your project's build and test commands -->
 
 After making changes:
-
 1. Rebuild the affected code
 2. Re-run the reproduction to confirm the fix works
 3. Watch for build/type errors and fix them
@@ -100,7 +98,6 @@ This captures all your changes for the report.
 ## Step 7: Write Output
 
 Append fix details to `report.md`:
-
 - What was changed and why
 - The full git diff
 - Whether the fix was successful

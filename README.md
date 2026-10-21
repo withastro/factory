@@ -122,7 +122,6 @@ flowchart TB
 
 A label-driven state machine over issues, with all state living in GitHub
 labels (visible, maintainer-overridable):
-
 - Issue opened/reopened → the full pipeline (reproduce → diagnose → verify →
   fix) runs in a **Cloudflare Sandbox container** holding a real checkout of
   the repository: a hardened blobless clone of the default branch, a
@@ -160,7 +159,6 @@ The code author persona owns any same-repository pull request assigned to
 it. Triage assigns it to every fix pull request it opens. See
 [Personas](#personas) for how it is addressed and how it works with the
 reviewer persona.
-
 - **Adoption.** Assigning the persona to a pull request posts an ownership
   status comment and immediately addresses any outstanding requested changes
   and failing checks.
@@ -242,18 +240,17 @@ Personas are assignable GitHub identities in front of capabilities. You
 assign an issue or pull request to a persona the way you would to a teammate,
 and the assignment is the signal to act:
 
-| Persona | Signal | Action |
-|---|---|---|
-| `triage` | Issue assigned to it | Runs the triage pipeline, whatever the current label, then unassigns itself. Reassign it to run triage again. |
-| `reviewer` | Review requested from it, or pull request assigned to it | Runs the review capability (a label isn't needed), then withdraws the request or assignment. Re-request it to review again. |
-| `author` | Same-repository pull request assigned to it | Takes ownership and addresses requested changes and failing checks until unassigned (see [Code author](#code-author-srcauthor)). |
+| Persona    | Signal                                                   | Action                                                                                                                           |
+| ---------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `triage`   | Issue assigned to it                                     | Runs the triage pipeline, whatever the current label, then unassigns itself. Reassign it to run triage again.                    |
+| `reviewer` | Review requested from it, or pull request assigned to it | Runs the review capability (a label isn't needed), then withdraws the request or assignment. Re-request it to review again.      |
+| `author`   | Same-repository pull request assigned to it              | Takes ownership and addresses requested changes and failing checks until unassigned (see [Code author](#code-author-srcauthor)). |
 
 ### The review loop
 
 The reviewer and author personas play GitHub's own review loop, and every
 hop between them is a visible GitHub state change a maintainer can step
 into:
-
 1. Triage opens a fix pull request, assigns the author persona, and requests
    the reviewer persona.
 2. The reviewer reviews. With no findings above the least severe configured
@@ -294,8 +291,8 @@ persona's account, tune the author, or switch a persona off:
 ```yaml
 personas:
   triage:
-    login: my-triage-bot       # defaults to astro-triage
-  reviewer: false              # switch a persona off
+    login: my-triage-bot # defaults to astro-triage
+  reviewer: false # switch a persona off
   author:
     # login: astro-author
     # skill: .agents/skills/author  # overrides the bundled default skill
@@ -423,9 +420,9 @@ All three YAML spellings mean the same thing — one command per line, no `&&`
 needed to sequence them:
 
 ```yaml
-buildCommand: pnpm build                    # a single command
-buildCommand: [pnpm install, pnpm build]    # a list
-buildCommand: |                             # a block scalar
+buildCommand: pnpm build # a single command
+buildCommand: [pnpm install, pnpm build] # a list
+buildCommand: | # a block scalar
   pnpm install
   pnpm build
 ```
@@ -460,7 +457,6 @@ the fix.
 A model is named as `<provider>/<model>`. Factory bundles only the
 `cloudflare-ai-gateway` provider, which can route to multiple upstreams while
 ensuring every inference request passes through the shared gateway:
-
 - Workers AI model ids include a routing prefix and their own vendor segments,
   for example
   `cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.7-code`.
@@ -487,13 +483,13 @@ provider's default. The release-security reviewer also defaults to `high`.
 Model settings are configurable and default to gateway-routed Workers AI
 models:
 
-| Setting | Used by | Default |
-| --- | --- | --- |
-| `adversary.blueTeam.model` | independent alternative implementation | `CODE_MODEL` |
-| `adversary.purpleTeam.model` | qualification and red/blue comparison | `CODE_MODEL` |
-| `review.model` | the pull request reviewer | `CODE_MODEL` |
-| `triage.model` | the reproduce/diagnose/fix pipeline | `CODE_MODEL` |
-| `triage.verificationModel` | fix verification and retriage decisions | `VERIFICATION_MODEL` |
+| Setting                      | Used by                                 | Default              |
+| ---------------------------- | --------------------------------------- | -------------------- |
+| `adversary.blueTeam.model`   | independent alternative implementation  | `CODE_MODEL`         |
+| `adversary.purpleTeam.model` | qualification and red/blue comparison   | `CODE_MODEL`         |
+| `review.model`               | the pull request reviewer               | `CODE_MODEL`         |
+| `triage.model`               | the reproduce/diagnose/fix pipeline     | `CODE_MODEL`         |
+| `triage.verificationModel`   | fix verification and retriage decisions | `VERIFICATION_MODEL` |
 
 The matching `thinkingLevel` fields are available for each model-backed agent:
 `adversary.blueTeam`, `adversary.purpleTeam`, `review`, `triage`,
@@ -522,7 +518,6 @@ pushed branch + `needs triage`.
 Publishing has to happen in the target repository's own CI — pkg.pr.new
 authenticates with that repository's Actions OIDC identity, which a Worker
 cannot present. So the factory:
-
 1. dispatches a maintainer-owned `workflow_dispatch` workflow, and
 2. polls for a check run on the pushed fix branch commit to collect the result.
 
@@ -533,13 +528,19 @@ creating a check run named `factory/preview-release` on the built commit whose
 summary contains a fenced `json` block:
 
 ```json
-{ "packages": [{ "name": "astro", "url": "https://pkg.pr.new/withastro/astro/astro@abc1234" }] }
+{
+	"packages": [
+		{
+			"name": "astro",
+			"url": "https://pkg.pr.new/withastro/astro/astro@abc1234"
+		}
+	]
+}
 ```
 
 Three deliberate design choices:
-
 - **The dispatch targets the default branch**, not the fix branch, so the
-  workflow *definition* is always maintainer-controlled and an agent can never
+  workflow _definition_ is always maintainer-controlled and an agent can never
   rewrite the CI that runs its own code. The fix branch travels as an input.
   The workflow still builds LLM-authored code, which is why the whole
   capability is opt-in per repository.

@@ -1,12 +1,12 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.9/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**", "!!**/dist"]
+		"includes": ["**", "!!**/dist", "!!pnpm-lock.yaml"]
 	},
 	"formatter": {
 		"enabled": true,
@@ -26,6 +26,9 @@
 		"formatter": {
 			"quoteStyle": "single"
 		}
+	},
+	"markdown": {
+		"parser": { "frontmatter": true }
 	},
 	"assist": {
 		"enabled": true,

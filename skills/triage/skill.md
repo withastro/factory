@@ -14,7 +14,6 @@ Triage a bug report end-to-end: reproduce the bug, diagnose the root cause, veri
 ## Input
 
 You need either:
-
 - `issueTitle` and `issueBody` provided in args (preferred — use these directly as the bug report), OR
 - A GitHub issue number or URL mentioned in the conversation (use `gh issue view` to fetch details)
 
@@ -25,7 +24,6 @@ If a `triageDir` is provided in args, use exactly that path as the working direc
 Read and follow [reproduce.md](reproduce.md). Use a subagent for this step to isolate context.
 
 After completing reproduction, check the result:
-
 - If the issue was **skipped** (host-specific, unsupported version, etc.) — skip to Output.
 - If the issue was **not reproducible** — skip to Output.
 - If the issue was **reproduced** — continue to Step 2.
@@ -35,7 +33,6 @@ After completing reproduction, check the result:
 Read and follow [diagnose.md](diagnose.md). Use a subagent for this step to isolate context.
 
 After completing diagnosis, check your confidence:
-
 - If confidence is **low** — skip to Output.
 - If confidence is **medium** or **high** — continue to Step 3.
 
@@ -44,7 +41,6 @@ After completing diagnosis, check your confidence:
 Read and follow [verify.md](verify.md). Use a subagent for this step to isolate context.
 
 After completing verification, check the verdict:
-
 - If the verdict is **intended-behavior** — skip to Output. The issue is not a bug; do not attempt a fix.
 - If the verdict is **bug** or **unclear** — continue to Step 4.
 
