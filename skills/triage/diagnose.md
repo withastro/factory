@@ -33,7 +33,6 @@ Re-run the reproduction if needed to see the error firsthand.
 <!-- CUSTOMIZE: Describe where your project's source code lives -->
 
 Using error messages, stack traces, and reproduction details, identify the source files likely involved. Look in:
-
 - `src/` — core source code
 - `lib/` — library code
 - `packages/` — monorepo packages (if applicable)
@@ -64,7 +63,6 @@ Iterate until you understand:
 ## Step 4: Identify Root Cause
 
 Document:
-
 1. **Which file(s)** contain the bug
 2. **What the code does wrong** — the specific logic error
 3. **Why this causes the observed behavior**
@@ -80,7 +78,6 @@ Consider:
 ## Step 5: Write Output
 
 Append diagnosis findings to `report.md`. Include:
-
 - Root cause explanation (which files, what logic is wrong, why)
 - Affected file paths with line numbers
 - Suggested fix approach

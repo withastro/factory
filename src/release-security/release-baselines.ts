@@ -7,11 +7,22 @@ import {
 	shellQuote,
 } from './sandbox.ts';
 
+// The exact `packages` list of withastro/astro's pnpm-workspace.yaml. pnpm (and therefore
+// Changesets) resolves workspace packages from it, so any change must be reviewed against
+// WORKSPACE_MANIFEST before release reviews can trust the derived package set.
 const EXPECTED_WORKSPACES = [
-	'packages/*',
-	'packages/integrations/*',
-	'packages/language-tools/*',
-	'packages/markdown/*',
+	'!**/.vercel/**',
+	'!packages/astro/test/units/_temp-fixtures/*',
+	'benchmark',
+	'benchmark/packages/*',
+	'benchmark/static-projects/*',
+	'examples/**/*',
+	'packages/**/*',
+	'packages/astro/test/units/_temp-fixtures',
+	'scripts',
+	'smoke/**/*',
+	'temp/*',
+	'triage/*',
 ];
 const WORKSPACE_MANIFEST =
 	/^packages\/(?:[^/]+|(?:integrations|language-tools|markdown)\/[^/]+)\/package\.json$/;
@@ -137,11 +148,12 @@ async function readSnapshot(
 	sandbox: ReleaseSandbox,
 	ref: string,
 ): Promise<Map<string, PackageManifest>> {
-	const root = parseJson(
-		await git(sandbox, ['show', `${ref}:package.json`]),
-		'package.json',
+	validateWorkspaces(
+		parsePnpmWorkspacePackages(
+			await git(sandbox, ['show', `${ref}:pnpm-workspace.yaml`]),
+		),
+		ref,
 	);
-	validateWorkspaces(root, ref);
 	const paths = (
 		await git(sandbox, [
 			'ls-tree',
@@ -282,14 +294,54 @@ function parseJson(value: string, source: string): Record<string, unknown> {
 	}
 }
 
-function validateWorkspaces(root: Record<string, unknown>, ref: string): void {
+const YAML_TOP_LEVEL_KEY = /^([A-Za-z_][\w-]*):(.*)$/;
+const YAML_LIST_ITEM =
+	/^\s+-\s+(?:'([^']*)'|"([^"\\]*)"|([\w./][^\s#]*))\s*(?:#.*)?$/;
+const YAML_IGNORABLE = /^\s*(?:#.*)?$/;
+
+/**
+ * Extracts the top-level `packages` block sequence from a pnpm-workspace.yaml without a
+ * YAML parser. Only the plain block form pnpm documents is accepted (one quoted or bare
+ * glob per `- ` line); anything else returns null so callers fail closed.
+ */
+export function parsePnpmWorkspacePackages(source: string): string[] | null {
+	const lines = source.replace(/^\uFEFF/, '').split(/\r?\n/);
+	const start = lines.findIndex((line) => {
+		const match = YAML_TOP_LEVEL_KEY.exec(line);
+		return match?.[1] === 'packages';
+	});
+	if (start === -1) return null;
 	if (
-		!Array.isArray(root.workspaces) ||
-		!root.workspaces.every((value) => typeof value === 'string')
+		!YAML_IGNORABLE.test(YAML_TOP_LEVEL_KEY.exec(lines[start] ?? '')?.[2] ?? '')
 	) {
+		return null;
+	}
+	if (
+		lines.some(
+			(line, index) =>
+				index !== start && YAML_TOP_LEVEL_KEY.exec(line)?.[1] === 'packages',
+		)
+	) {
+		return null;
+	}
+	const packages: string[] = [];
+	for (const line of lines.slice(start + 1)) {
+		if (YAML_IGNORABLE.test(line)) continue;
+		if (!/^\s/.test(line)) break;
+		const match = YAML_LIST_ITEM.exec(line);
+		if (!match) return null;
+		const value = match[1] ?? match[2] ?? match[3] ?? '';
+		if (value.length === 0) return null;
+		packages.push(value);
+	}
+	return packages.length > 0 ? packages : null;
+}
+
+function validateWorkspaces(workspaces: string[] | null, ref: string): void {
+	if (!workspaces) {
 		throw new Error(`Workspace configuration is invalid at ${ref}.`);
 	}
-	const actual = [...new Set(root.workspaces)].sort();
+	const actual = [...new Set(workspaces)].sort();
 	if (
 		actual.length !== EXPECTED_WORKSPACES.length ||
 		actual.some((workspace, index) => workspace !== EXPECTED_WORKSPACES[index])

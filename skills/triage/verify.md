@@ -23,7 +23,6 @@ Verify whether a GitHub issue describes an actual bug or a misunderstanding of i
 ## Step 1: Identify the Claim
 
 Read the issue and extract:
-
 - **Current behavior**: What the reporter observes.
 - **Expected behavior**: What the reporter says _should_ happen.
 
@@ -42,7 +41,6 @@ Search the project docs. Does the documentation describe or imply the current be
 ### Check Source Code for Intent Signals
 
 Look at the relevant source code. Pay attention to:
-
 - **Comments explaining "why"** — strong evidence of intentional design
 - **Explicit conditionals and early returns** — likely intentional handling
 - **Named constants and configuration** — deliberate choice
@@ -105,7 +103,6 @@ Cannot confidently determine intent. Lean toward "unclear" rather than guessing.
 ## Step 5: Write Output
 
 Append to `report.md`:
-
 - The reporter's claim
 - Your verdict: `bug`, `intended-behavior`, or `unclear`
 - Confidence: `high`, `medium`, or `low`

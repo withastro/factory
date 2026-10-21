@@ -3,8 +3,8 @@ name: astro-release-security
 description: Review an Astro Changesets release PR for vulnerabilities that should block publication. Use for release-blocking security review of withastro/astro release branches.
 license: BSD-3-Clause
 metadata:
-  author: matthewp
-  version: "2.0"
+author: matthewp
+version: "2.0"
 ---
 
 # Astro Release Security Review
@@ -36,7 +36,6 @@ The merge base identifies the unversioned release snapshot. It is not the securi
 Read the trusted release baseline inventory. It records each publishable package's name, directory, prior version/tag/commit when one exists, and new version. Trusted orchestration has excluded private and Changesets-ignored packages, fetched exact tags, peeled annotated tags, and verified ancestry.
 
 For every package:
-
 - Use `git.changedFiles({ from: PREVIOUS_TAG, to: RELEASE_HEAD })` to inventory every changed file, or `git.listFiles()` for a new package.
 - Account for every file as shipping code, security-relevant context, generated release metadata, or demonstrably unrelated to the published artifact.
 - Include runtime behavior, manifests, dependencies, tests expressing security boundaries, imported shared packages, build configuration, inclusion rules, exports, generated output, copied assets, and sourcemaps.
@@ -49,7 +48,6 @@ Do not use the newest repository tag or a previous global release commit as a su
 Read every staged published, non-withdrawn repository advisory. For each advisory affecting a released package, and each advisory whose security property intersects a changed subsystem, inspect its description, affected versions, fix commits, regression tests, callers, and surrounding code.
 
 Extract the security invariant enforced by relevant fixes. Search for:
-
 - direct reversions or weakened checks
 - alternate paths around a fix
 - inconsistent core and adapter behavior
@@ -64,7 +62,6 @@ For changed runtime dependencies, inspect the old and new versions represented b
 ## 4. Search For New Vulnerabilities
 
 Trace attacker-controlled data across changed trust boundaries. Prioritize:
-
 - request URLs, paths, headers, redirects, rewrites, and routing
 - middleware and authorization boundaries
 - HTML, script, XML, CSS, and attribute escaping
@@ -83,7 +80,6 @@ Divide non-trivial analysis by package or security boundary and perform passes s
 ## 5. Blocking Threshold
 
 A release-blocking finding must establish:
-
 1. A realistic attacker capability and input.
 2. A reachable path through newly published code.
 3. Why existing protections do not stop it.
@@ -91,7 +87,6 @@ A release-blocking finding must establish:
 5. The package and code responsible.
 
 Before returning `PASS`, confirm internally:
-
 1. Every package used its own verified baseline, or a new package received a complete surface review.
 2. Every changed file was accounted for.
 3. Every relevant published advisory was checked by security invariant.

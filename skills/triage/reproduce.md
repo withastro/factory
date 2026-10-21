@@ -22,7 +22,6 @@ Reproduce a GitHub issue to determine if a bug is valid and reproducible.
 ## Step 1: Confirm Bug Details
 
 Confirm that you have `issueDetails`. Read carefully:
-
 - The bug description and expected vs actual behavior
 - Any reproduction steps provided
 - Environment details (versions, OS, runtime)
@@ -76,7 +75,7 @@ belong inside `triageDir` only, and only with a path you have verified.
 ### The Issue Is About This Repository Itself
 
 Most common case. Do **not** clone anything — the checkout you are already in
-*is* the code under test. Build and test it in place, and use `triageDir` only
+_is_ the code under test. Build and test it in place, and use `triageDir` only
 for scratch files and `report.md`.
 
 ### From a GitHub URL
@@ -135,7 +134,6 @@ npm install
 ## Step 5: Write Output
 
 Write `report.md` to the triage directory. This is NOT for humans — it's context for the next pipeline stage. Include:
-
 - The original issue title, description, and relevant details
 - Full environment details
 - All steps attempted and their results
