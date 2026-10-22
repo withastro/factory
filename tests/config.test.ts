@@ -67,6 +67,12 @@ review:
 				model: CODE_MODEL,
 				thinkingLevel: 'high',
 			},
+			discord: {
+				enabled: true,
+				skill: undefined,
+				model: CODE_MODEL,
+				thinkingLevel: 'high',
+			},
 		});
 	});
 
@@ -109,6 +115,42 @@ advisories:
 		expect(() =>
 			parseFactoryConfig('version: 1\nadvisories:\n  skill: skills/advisory\n'),
 		).toThrow();
+	});
+
+	it('enables the Discord assistant by default with the triage model', () => {
+		expect(defaultFactoryConfig().discord).toEqual({
+			enabled: true,
+			skill: undefined,
+			model: CODE_MODEL,
+			thinkingLevel: 'high',
+		});
+		const config = parseFactoryConfig(`
+version: 1
+triage:
+  model: anthropic/claude-opus-5-5
+`);
+		expect(config.discord.enabled).toBe(true);
+		expect(config.discord.model).toBe(config.triage.model);
+	});
+
+	it('parses Discord assistant overrides', () => {
+		const config = parseFactoryConfig(`
+version: 1
+discord:
+  skill: .agents/skills/astro-discord
+  model: anthropic/claude-sonnet-4-6
+  thinkingLevel: medium
+`);
+		expect(config.discord).toEqual({
+			enabled: true,
+			skill: '.agents/skills/astro-discord',
+			model: 'cloudflare-ai-gateway/claude-sonnet-4-6',
+			thinkingLevel: 'medium',
+		});
+		expect(
+			parseFactoryConfig('version: 1\ndiscord:\n  enabled: false\n').discord
+				.enabled,
+		).toBe(false);
 	});
 
 	it('uses the bundled review skill when no override is configured', () => {
