@@ -328,6 +328,13 @@ const factoryConfigSchema = v.object({
 			thinkingLevel: v.optional(thinkingLevelSchema),
 		}),
 	),
+	prSafety: v.optional(
+		v.object({
+			enabled: v.optional(v.boolean()),
+			model: v.optional(modelSchema),
+			thinkingLevel: v.optional(thinkingLevelSchema),
+		}),
+	),
 });
 
 function labelConfigShape() {
@@ -389,6 +396,17 @@ export interface AdvisoriesConfig {
 	/** Repository skill override; the bundled default skill is used when absent. */
 	skill: string | undefined;
 	/** `<provider>/<model>`; defaults to the triage pipeline's model. */
+	model: string;
+	thinkingLevel: ThinkingLevel;
+}
+
+/**
+ * Review of untrusted pull requests for malicious intent. Off by default;
+ * results go to the Worker's private Discord destination and R2 bucket.
+ */
+export interface PrSafetyConfig {
+	enabled: boolean;
+	/** `<provider>/<model>` for the PR safety reviewer. */
 	model: string;
 	thinkingLevel: ThinkingLevel;
 }
@@ -480,6 +498,7 @@ export interface FactoryConfig {
 	triage: TriageConfig;
 	releaseSecurity: { thinkingLevel: ThinkingLevel };
 	advisories: AdvisoriesConfig;
+	prSafety: PrSafetyConfig;
 }
 
 /** Configuration used when the repository has no factory.yml at all. */
@@ -506,6 +525,11 @@ export function defaultFactoryConfig(): FactoryConfig {
 		advisories: {
 			enabled: true,
 			skill: undefined,
+			model: CODE_MODEL,
+			thinkingLevel: DEFAULT_THINKING_LEVEL,
+		},
+		prSafety: {
+			enabled: false,
 			model: CODE_MODEL,
 			thinkingLevel: DEFAULT_THINKING_LEVEL,
 		},
@@ -603,6 +627,11 @@ export function parseFactoryConfig(source: string): FactoryConfig {
 				: undefined,
 			model: config.advisories?.model ?? config.triage?.model ?? CODE_MODEL,
 			thinkingLevel: config.advisories?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
+		},
+		prSafety: {
+			enabled: config.prSafety?.enabled ?? false,
+			model: config.prSafety?.model ?? CODE_MODEL,
+			thinkingLevel: config.prSafety?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
 		},
 	};
 }

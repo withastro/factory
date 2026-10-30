@@ -5,6 +5,8 @@ import type { AdvisoryWorkflowParams } from './advisory/contracts.ts';
 import type { AdvisoryCoordinator } from './advisory/coordinator.ts';
 import type { AuthorWorkflowParams } from './author/contracts.ts';
 import type { AuthorCoordinator } from './author/coordinator.ts';
+import type { PrSafetyWorkflowParams } from './pr-safety/contracts.ts';
+import type { PrSafetyCoordinator } from './pr-safety/coordinator.ts';
 import type { ReleaseSecurityWorkflowParams } from './release-security/contracts.ts';
 import type { ReleaseSecurityCoordinator } from './release-security/coordinator.ts';
 import type { ReviewWorkflowParams } from './review/contracts.ts';
@@ -13,7 +15,10 @@ import type { TriageWorkflowParams } from './triage/contracts.ts';
 import type { TriageCoordinator } from './triage/coordinator.ts';
 
 export interface WorkerEnv
-	extends Omit<Env, 'TRIAGE_SANDBOX' | 'ADVERSARY_SANDBOX'> {
+	extends Omit<
+		Env,
+		'TRIAGE_SANDBOX' | 'ADVERSARY_SANDBOX' | 'PR_SAFETY_SANDBOX'
+	> {
 	GITHUB_APP_ID: string;
 	GITHUB_APP_PRIVATE_KEY: string;
 	GITHUB_WEBHOOK_SECRET: string;
@@ -27,6 +32,9 @@ export interface WorkerEnv
 	ADVERSARY_ARTIFACTS: R2Bucket;
 	AUTHOR_COORDINATOR: DurableObjectNamespace<AuthorCoordinator>;
 	AUTHOR_WORKFLOW: Workflow<AuthorWorkflowParams>;
+	PR_SAFETY_COORDINATOR: DurableObjectNamespace<PrSafetyCoordinator>;
+	PR_SAFETY_SANDBOX: DurableObjectNamespace<Sandbox>;
+	PR_SAFETY_WORKFLOW: Workflow<PrSafetyWorkflowParams>;
 	REVIEW_COORDINATOR: DurableObjectNamespace<ReviewCoordinator>;
 	TRIAGE_COORDINATOR: DurableObjectNamespace<TriageCoordinator>;
 	TRIAGE_SANDBOX: DurableObjectNamespace<Sandbox>;
