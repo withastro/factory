@@ -21,6 +21,10 @@ import {
 } from '../github/client.ts';
 import { resolvePersona } from '../personas/personas.ts';
 import {
+	prSafetyCoordinatorKey,
+	prSafetyWorkflowParamsSchema,
+} from '../pr-safety/contracts.ts';
+import {
 	RELEASE_SECURITY_TARGET,
 	type ReleaseSecurityWorkflowParams,
 	releaseSecurityCoordinatorKey,
@@ -39,6 +43,7 @@ import {
 	type AuthorActivityIntent,
 	type Dispatch,
 	type PersonaAssignmentIntent,
+	type PrSafetyIntent,
 	type ReleaseSecurityRerequestIntent,
 	type ReviewIntentParams,
 	routeDelivery,
@@ -91,6 +96,8 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 					...admission,
 				});
 			}
+			case 'pr-safety':
+				return dispatchPrSafety(c.env, dispatch.params, delivery);
 			case 'release-security':
 				return dispatchReleaseSecurity(c.env, dispatch.params, delivery);
 			case 'release-security-rerequest':
@@ -369,6 +376,60 @@ async function enqueueAuthor(
 	});
 }
 
+/**
+ * Start a PR safety review when the repository enabled it. Configuration is
+ * pinned to the base branch tip, so a pull request cannot switch the check
+ * off for itself.
+ */
+async function dispatchPrSafety(
+	env: AppHonoEnv['Bindings'],
+	intent: PrSafetyIntent,
+	delivery: DeliveryContext,
+): Promise<Response> {
+	const decline = (reason: string) => {
+		logAdmitted(delivery, 'pr-safety', 'rejected', reason);
+		return Response.json({ accepted: false, reason });
+	};
+	// The workspace clones without credentials.
+	if (intent.repoIsPrivate) {
+		return decline('PR safety supports public repositories only.');
+	}
+	const client = await createInstallationClient(
+		credentialsFromWorkerEnv(env),
+		intent.installationId,
+	);
+	const baseBranch = await client.rest.repos.getBranch({
+		owner: intent.owner,
+		repo: intent.repo,
+		branch: intent.baseRef,
+	});
+	const configurationSha = baseBranch.data.commit.sha.toLowerCase();
+	const { config } = await loadFactoryConfig(
+		client,
+		intent.owner,
+		intent.repo,
+		configurationSha,
+	);
+	if (!config.prSafety.enabled) {
+		return decline('PR safety is not enabled for this repository.');
+	}
+	const { repoIsPrivate: _private, ...rest } = intent;
+	const params = v.parse(prSafetyWorkflowParamsSchema, {
+		...rest,
+		configurationSha,
+	});
+	const coordinator = env.PR_SAFETY_COORDINATOR.getByName(
+		prSafetyCoordinatorKey(params),
+	);
+	const admission = await coordinator.enqueue(params);
+	logAdmitted(delivery, 'pr-safety', admission.disposition);
+	return Response.json({
+		accepted: true,
+		capability: 'pr-safety',
+		...admission,
+	});
+}
+
 async function dispatchReleaseSecurity(
 	env: AppHonoEnv['Bindings'],
 	params: ReleaseSecurityWorkflowParams,
@@ -511,6 +572,12 @@ function routedTarget(dispatch: Dispatch): Record<string, unknown> {
 				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
 				ghsaId: dispatch.params.ghsaId,
 			};
+		case 'pr-safety':
+			return {
+				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
+				pullNumber: dispatch.params.pullNumber,
+				authorAssociation: dispatch.params.authorAssociation,
+			};
 		case 'release-security':
 			return {
 				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
@@ -539,6 +606,7 @@ function logAdmitted(
 		| 'triage'
 		| 'advisory'
 		| 'release-security'
+		| 'pr-safety'
 		| 'adversary'
 		| 'author'
 		| 'persona',

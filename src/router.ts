@@ -22,6 +22,10 @@
  *   `pull_request.review_requested`     configured personas later)
  * - `repository_advisory.reported`    → advisory triage (a private
  *                                        vulnerability report was submitted)
+ * - `pull_request.opened|reopened|   → PR safety, for authors who are not
+ *   synchronize`                        maintainers and for dependency bots
+ *                                        (whether the repository enabled it
+ *                                        is checked later against config)
  * - human activity on a Factory       → code author (whether the author
  *   pull request: reviews, review        persona owns the pull request is
  *   comments, comments, and failed       checked later against live state)
@@ -31,6 +35,7 @@
 import type { AdvisoryWorkflowParams } from './advisory/contracts.ts';
 import { GHSA_ID_PATTERN } from './advisory/contracts.ts';
 import { isBotAuthor } from './github/bots.ts';
+import { prSafetyScope } from './pr-safety/scope.ts';
 import { RELEASE_SECURITY_CHECK_NAMES } from './release-security/checks.ts';
 import {
 	RELEASE_BRANCH_PREFIX,
@@ -85,6 +90,30 @@ export interface PersonaAssignmentIntent {
 	subject: PersonaSubject;
 }
 
+/**
+ * A pull request head from an untrusted author. Whether the repository has
+ * the PR safety check enabled is decided later, against configuration read
+ * from the base branch.
+ */
+export interface PrSafetyIntent {
+	deliveryId: string;
+	installationId: number;
+	repositoryId: number;
+	owner: string;
+	repo: string;
+	repoIsPrivate: boolean;
+	pullNumber: number;
+	pullUrl: string;
+	pullTitle: string;
+	pullBody: string;
+	author: string;
+	authorAssociation: string;
+	headRepository: string;
+	headSha: string;
+	baseRef: string;
+	baseSha: string;
+}
+
 /** Requested changes, or failed checks, on a pull request. */
 export type AuthorActivity = 'review' | 'check-failure';
 
@@ -112,6 +141,7 @@ export type Dispatch =
 	| { kind: 'author-activity'; params: AuthorActivityIntent }
 	| { kind: 'triage'; params: TriageWorkflowParams }
 	| { kind: 'advisory'; params: AdvisoryWorkflowParams }
+	| { kind: 'pr-safety'; params: PrSafetyIntent }
 	| { kind: 'release-security'; params: ReleaseSecurityWorkflowParams }
 	| {
 			kind: 'release-security-rerequest';
@@ -151,6 +181,8 @@ interface WebhookPayload {
 	pull_request?: {
 		number: number;
 		html_url?: string;
+		user?: WebhookUser | null;
+		author_association?: string;
 		title?: string;
 		body?: string | null;
 		assignees?: WebhookUser[] | null;
@@ -234,6 +266,9 @@ export function routeDelivery(
 		defaultBranch: repository.default_branch,
 		repoIsPrivate: repository.private,
 	};
+
+	const prSafety = routePrSafety(eventName, payload, repositoryContext);
+	if (prSafety) return prSafety;
 
 	const assignment = routePersonaAssignment(
 		eventName,
@@ -337,6 +372,61 @@ type RepositoryContext = Pick<
 	| 'defaultBranch'
 	| 'repoIsPrivate'
 >;
+
+const PR_SAFETY_ACTIONS = new Set(['opened', 'reopened', 'synchronize']);
+
+function routePrSafety(
+	eventName: string,
+	payload: WebhookPayload,
+	context: RepositoryContext,
+): Dispatch | undefined {
+	if (
+		eventName !== 'pull_request' ||
+		!PR_SAFETY_ACTIONS.has(payload.action ?? '')
+	) {
+		return;
+	}
+	const pull = payload.pull_request;
+	if (!pull) {
+		return {
+			kind: 'none',
+			reason: 'The pull request delivery has no pull request.',
+		};
+	}
+	const scope = prSafetyScope({
+		login: pull.user?.login,
+		type: pull.user?.type,
+		association: pull.author_association,
+	});
+	if (!scope.review) return { kind: 'none', reason: scope.reason };
+	if (
+		!pull.html_url ||
+		!pull.head.repo?.full_name ||
+		!isSha(pull.head.sha) ||
+		!isSha(pull.base.sha)
+	) {
+		return {
+			kind: 'none',
+			reason: 'The pull request delivery is missing required metadata.',
+		};
+	}
+	return {
+		kind: 'pr-safety',
+		params: {
+			...context,
+			pullNumber: pull.number,
+			pullUrl: pull.html_url,
+			pullTitle: pull.title ?? '',
+			pullBody: pull.body ?? '',
+			author: pull.user?.login as string,
+			authorAssociation: pull.author_association ?? 'NONE',
+			headRepository: pull.head.repo.full_name,
+			headSha: pull.head.sha.toLowerCase(),
+			baseRef: pull.base.ref,
+			baseSha: pull.base.sha.toLowerCase(),
+		},
+	};
+}
 
 function routePersonaAssignment(
 	eventName: string,
@@ -597,6 +687,9 @@ function routeReleaseSecurityPullRequest(
 	const repository = payload.repository;
 	if (!pull || !repository) return;
 	if (repository.full_name !== RELEASE_SECURITY_TARGET) return;
+	const mode = releaseMode(pull.head.ref, pull.base.ref, pull.title);
+	// Not a release pull request: other capabilities (PR safety) may want it.
+	if (!mode) return;
 	if (
 		pull.head.repo?.full_name !== RELEASE_SECURITY_TARGET ||
 		pull.base.repo?.full_name !== RELEASE_SECURITY_TARGET
@@ -606,8 +699,6 @@ function routeReleaseSecurityPullRequest(
 			reason: 'Release pull request must originate in the target repository.',
 		};
 	}
-	const mode = releaseMode(pull.head.ref, pull.base.ref, pull.title);
-	if (!mode) return;
 	if (
 		!pull.html_url ||
 		!pull.title ||

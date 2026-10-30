@@ -67,6 +67,28 @@ review:
 				model: CODE_MODEL,
 				thinkingLevel: 'high',
 			},
+			prSafety: {
+				enabled: false,
+				model: CODE_MODEL,
+				thinkingLevel: 'high',
+			},
+		});
+	});
+
+	it('leaves PR safety off unless a repository enables it', () => {
+		expect(defaultFactoryConfig().prSafety.enabled).toBe(false);
+		expect(
+			parseFactoryConfig(`
+version: 1
+prSafety:
+  enabled: true
+  model: anthropic/claude-opus-4-6
+  thinkingLevel: xhigh
+`).prSafety,
+		).toEqual({
+			enabled: true,
+			model: 'cloudflare-ai-gateway/claude-opus-4-6',
+			thinkingLevel: 'xhigh',
 		});
 	});
 

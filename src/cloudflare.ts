@@ -10,6 +10,8 @@ export { AdvisoryCoordinator } from './advisory/coordinator.ts';
 export { AdvisoryWorkflow } from './advisory/workflow.ts';
 export { AuthorCoordinator } from './author/coordinator.ts';
 export { AuthorWorkflow } from './author/workflow.ts';
+export { PrSafetyCoordinator } from './pr-safety/coordinator.ts';
+export { PrSafetyWorkflow } from './pr-safety/workflow.ts';
 export { ReleaseSecurityCoordinator } from './release-security/coordinator.ts';
 export { ReleaseSecurityWorkflow } from './release-security/workflow.ts';
 export { ReviewCoordinator } from './review/coordinator.ts';

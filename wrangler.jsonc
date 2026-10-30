@@ -75,6 +75,14 @@
 			{
 				"name": "ADVISORY_COORDINATOR",
 				"class_name": "AdvisoryCoordinator"
+			},
+			{
+				"name": "PR_SAFETY_COORDINATOR",
+				"class_name": "PrSafetyCoordinator"
+			},
+			{
+				"name": "PR_SAFETY_SANDBOX",
+				"class_name": "Sandbox"
 			}
 		]
 	},
@@ -108,6 +116,11 @@
 			"name": "factory-advisory",
 			"binding": "ADVISORY_WORKFLOW",
 			"class_name": "AdvisoryWorkflow"
+		},
+		{
+			"name": "factory-pr-safety",
+			"binding": "PR_SAFETY_WORKFLOW",
+			"class_name": "PrSafetyWorkflow"
 		}
 	],
 	"observability": {
@@ -173,6 +186,10 @@
 				"DiscordGateway",
 				"DiscordThreadCoordinator"
 			]
+		},
+		{
+			"tag": "v9",
+			"new_sqlite_classes": ["FluePrSafetyReviewerAgent", "PrSafetyCoordinator"]
 		}
 	]
 }

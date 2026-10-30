@@ -36,14 +36,16 @@ GitHub webhooks ─→ Hono ingress (signature verification)
                         ├→ TriageCoordinator DO (one per issue) ─→ TriageWorkflow ─→ FixVerifier / RetriageJudge agents
                         ├→ AuthorCoordinator DO (one per PR) ─→ AuthorWorkflow ─→ CodeAuthor agent (one conversation per PR)
                         ├→ AdvisoryCoordinator DO (one per advisory) ─→ AdvisoryWorkflow ─→ AdvisoryTriager agent ─→ Discord
-                        └→ ReleaseSecurityCoordinator DO (one per PR) ─→ ReleaseSecurityWorkflow ─→ ReleaseSecurityReviewer agent
+                        ├→ ReleaseSecurityCoordinator DO (one per PR) ─→ ReleaseSecurityWorkflow ─→ ReleaseSecurityReviewer agent
+                        └→ PrSafetyCoordinator DO (one per PR) ─→ PrSafetyWorkflow ─→ rule signals + PrSafetyReviewer agent ─→ Discord
 ```
 
 - **Router** (`src/router.ts`): deterministic and pure. `pull_request.labeled`
   → review; `issues.opened|reopened|closed` and human `issue_comment.created`
   → triage; `issues.assigned`, `pull_request.assigned`, and
   `pull_request.review_requested` → [personas](#personas);
-  `repository_advisory.reported` → advisory triage; human reviews,
+  `repository_advisory.reported` → advisory triage; `pull_request.opened|reopened|synchronize`
+  from non-maintainers and dependency bots → [PR safety](#pr-safety-srcpr-safety); human reviews,
   review comments, comments, and failed checks on Factory pull requests → the
   code author. Bot activity is dropped at the door to prevent self-trigger
   loops.
@@ -210,6 +212,39 @@ Flue's private durable agent state also retains the structured model output.
 GitHub receives only a check result and a sanitized comment containing the
 verdict and reviewed SHA. `BLOCK` and `INCOMPLETE` both fail the check.
 
+### PR safety (`src/pr-safety/`)
+
+An opt-in check (`prSafety.enabled`) that asks whether an untrusted pull
+request is an **attack**, not whether its code has bugs. Examples: a
+planted vulnerability, exfiltration or phoning home, GitHub Actions abuse,
+supply-chain tampering, hidden payloads, or text aimed at AI agents. It runs
+on every push to a pull request in a public repository whose author isn't an
+`OWNER`, `MEMBER`, or `COLLABORATOR`, and on pull requests from renovate and
+dependabot. Other bots are skipped, and release pull requests are left to
+release security.
+
+Each head is reviewed in two tiers:
+1. **Rule signals** (`signals.ts`): deterministic checks over the merge-base
+   diff. They cover workflow changes and dangerous workflow constructs,
+   install scripts, non-registry dependency and lockfile sources,
+   package-manager and git-hook configuration, Trojan Source and invisible
+   Unicode, encoded blobs and binaries, network, credential, and
+   process-execution code, new hosts, removed security logic, and
+   prompt-injection text. No model is involved.
+2. **Reviewer agent** (`skills/pr-safety/`): a model in a credential-free,
+   read-only checkout (the same CodeMode tools as release security; no shell,
+   no network). It starts from the signals, measures every hunk against the
+   pull request's stated purpose, and returns `CLEAN`, `SUSPICIOUS`,
+   `MALICIOUS`, or `INCOMPLETE`.
+
+Results are private. The full report and signal table go to the
+`PRIVATE_REPORTS` R2 bucket under `pr-safety/`. `SUSPICIOUS` and `MALICIOUS`
+verdicts are posted to the Discord security channel with the report attached,
+and so is an `INCOMPLETE` review that had high-severity signals. On GitHub the
+`Factory PR safety` check always concludes `neutral` with the same text, so it
+never tells a contributor whether their change was flagged. Nothing in the
+checkout is executed.
+
 ### Advisory triage (`src/advisory/`)
 
 When someone privately reports a vulnerability (`repository_advisory.reported`),
@@ -366,6 +401,11 @@ advisories:
   # enabled: true # triage privately reported advisories (needs Discord; see GitHub App setup)
   # skill: .agents/skills/advisory-triage # overrides the bundled default skill
   # model: cloudflare-ai-gateway/claude-opus-4-6 # default: triage.model
+  # thinkingLevel: high # default: high
+
+prSafety:
+  # enabled: false # review untrusted pull requests for malicious intent (needs Discord)
+  # model: cloudflare-ai-gateway/claude-opus-4-6
   # thinkingLevel: high # default: high
 ```
 
