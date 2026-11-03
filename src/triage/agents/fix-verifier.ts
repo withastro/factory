@@ -101,11 +101,18 @@ Determine if this comment is a **positive confirmation** that the fix works. Exa
 - "Thanks, that solved it"
 - Thumbs up or similar positive reaction with clear reference to testing
 
-Determine if this comment is a **negative confirmation** that the fix does NOT work. Examples:
+Determine if this comment is a **negative confirmation** that the fix does NOT work, or that the current candidate fix should not ship as-is. Examples:
 - "Still broken"
 - "Same error"
 - "The fix doesn't work"
 - "Tried the preview, issue persists"
+- A maintainer or someone with technical authority reviewing the diff itself and
+  asking for it to be revised, simplified, or redone before it ships — even if
+  they say the approach "works" in the sense of passing tests. The reporter's
+  issue being technically fixed is not the same as the fix being ready to ship;
+  treat a requested revision, a flagged regression, or an explicit "please
+  retriage" from anyone as negative so the feedback reaches a fresh triage
+  attempt instead of being dropped.
 
 Examples of comments that are NEITHER (inconclusive):
 - Asking questions ("How do I install this?")
