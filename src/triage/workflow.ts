@@ -281,7 +281,9 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					await this.retriage(step, client, credentials, params, routed),
 				);
 			case 'verify-fix':
-				return finish(await this.verifyFix(step, client, params, routed));
+				return finish(
+					await this.verifyFix(step, client, credentials, params, routed),
+				);
 		}
 	}
 
@@ -1328,6 +1330,7 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 	private async verifyFix(
 		step: WorkflowStep,
 		client: () => Promise<InstallationClient>,
+		credentials: GitHubCredentials,
 		params: TriageWorkflowParams,
 		routed: RoutedIssue,
 	): Promise<TriageWorkflowOutcome> {
@@ -1426,8 +1429,25 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					triage.labels.fixPending,
 					triage.labels.fixRejected,
 				);
+				await postIssueComment(
+					api,
+					params.owner,
+					params.repo,
+					params.issueNumber,
+					`The candidate fix was rejected: ${verdict.reasoning}\n\nRe-evaluating whether the feedback warrants a new triage attempt.`,
+				);
 			});
-			return { outcome: 'fix-rejected' };
+
+			// The comment that rejected the fix already carries whatever new,
+			// actionable information prompted the rejection — most often a
+			// concrete regression and a suggested fix, as here. Don't park the
+			// issue waiting on a second human comment to notice: feed the same
+			// conversation straight into the retriage judge now that the label
+			// reflects the rejection.
+			return this.retriage(step, client, credentials, params, {
+				...routed,
+				issue: { ...issue, currentLabel: triage.labels.fixRejected },
+			});
 		}
 
 		const pullRequest = await step.do(
