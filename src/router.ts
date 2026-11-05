@@ -30,6 +30,11 @@
  *   pull request: reviews, review        persona owns the pull request is
  *   comments, comments, and failed       checked later against live state)
  *   check suites / workflow runs
+ * - `check_run.completed` on the       → merge risk (only fires for pull
+ *   `Factory Review` check               requests review was actually
+ *                                        triggered on; the app id is checked
+ *                                        later so only this App's own check
+ *                                        can start it)
  */
 
 import type { AdvisoryWorkflowParams } from './advisory/contracts.ts';
@@ -45,6 +50,7 @@ import {
 	SMOKE_BRANCH_PREFIX,
 	SMOKE_PR_TITLE,
 } from './release-security/contracts.ts';
+import { REVIEW_CHECK_NAME } from './review/checks.ts';
 import { CHANGES_REQUESTED_VERDICT_MARKER } from './review/verdict.ts';
 import type { TriageWorkflowParams } from './triage/contracts.ts';
 
@@ -147,7 +153,25 @@ export type Dispatch =
 			kind: 'release-security-rerequest';
 			params: ReleaseSecurityRerequestIntent;
 	  }
+	| { kind: 'merge-risk'; params: MergeRiskIntent }
 	| { kind: 'none'; reason: string };
+
+/**
+ * Factory's own review check completed on a pull request. Whether that check
+ * belongs to this GitHub App, and whether the pull request still matches, is
+ * checked later against live state, exactly like a release security
+ * rerequest.
+ */
+export interface MergeRiskIntent {
+	deliveryId: string;
+	installationId: number;
+	repositoryId: number;
+	owner: string;
+	repo: string;
+	pullNumber: number;
+	headSha: string;
+	appId: number;
+}
 
 export interface ReleaseSecurityRerequestIntent {
 	deliveryId: string;
@@ -260,6 +284,9 @@ export function routeDelivery(
 
 	const rerequest = routeReleaseSecurityRerequest(eventName, payload, base);
 	if (rerequest) return rerequest;
+
+	const mergeRisk = routeMergeRisk(eventName, payload, base);
+	if (mergeRisk) return mergeRisk;
 
 	const repositoryContext = {
 		...base,
@@ -770,6 +797,81 @@ function routeReleaseSecurityRerequest(
 			appId: check.app.id,
 		},
 	};
+}
+
+/**
+ * Merge risk piggybacks on Factory's own review check: it only runs for
+ * pull requests where review was actually triggered (a label match or the
+ * reviewer persona), and only once that review's check run completes —
+ * never on every push, to keep the common case of an unlabeled pull request
+ * free.
+ *
+ * `check_run.pull_requests` is unreliable for fork heads, so the pull number
+ * comes from the check's `details_url`, which `startReviewCheck` always sets
+ * to the pull request's own URL.
+ */
+function routeMergeRisk(
+	eventName: string,
+	payload: WebhookPayload,
+	base: Pick<
+		MergeRiskIntent,
+		'deliveryId' | 'installationId' | 'repositoryId' | 'owner' | 'repo'
+	>,
+): Dispatch | undefined {
+	if (eventName !== 'check_run' || payload.action !== 'completed') return;
+	const check = payload.check_run;
+	if (!check || check.name !== REVIEW_CHECK_NAME) return;
+	if (!check.app?.id || !isSha(check.head_sha)) {
+		return {
+			kind: 'none',
+			reason: 'Factory Review check is missing required metadata.',
+		};
+	}
+	const pullNumber = pullNumberFromPullUrl(
+		check.details_url,
+		base.owner,
+		base.repo,
+	);
+	if (!pullNumber) {
+		return {
+			kind: 'none',
+			reason: 'Factory Review check has no pull request.',
+		};
+	}
+	return {
+		kind: 'merge-risk',
+		params: {
+			...base,
+			pullNumber,
+			headSha: check.head_sha.toLowerCase(),
+			appId: check.app.id,
+		},
+	};
+}
+
+/** A pull request number from a `https://github.com/<owner>/<repo>/pull/<n>` URL. */
+function pullNumberFromPullUrl(
+	url: string | undefined,
+	owner: string,
+	repo: string,
+): number | undefined {
+	try {
+		const parsed = new URL(url ?? '');
+		if (parsed.origin !== 'https://github.com') return undefined;
+		const parts = parsed.pathname.split('/').filter(Boolean);
+		if (
+			parts.length !== 4 ||
+			parts[0] !== owner ||
+			parts[1] !== repo ||
+			parts[2] !== 'pull'
+		) {
+			return undefined;
+		}
+		const value = Number(parts[3]);
+		return Number.isInteger(value) && value > 0 ? value : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function releaseMode(

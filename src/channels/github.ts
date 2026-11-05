@@ -19,6 +19,10 @@ import {
 	credentialsFromWorkerEnv,
 	requiredProcessEnv,
 } from '../github/client.ts';
+import {
+	mergeRiskCoordinatorKey,
+	mergeRiskWorkflowParamsSchema,
+} from '../merge-risk/contracts.ts';
 import { resolvePersona } from '../personas/personas.ts';
 import {
 	prSafetyCoordinatorKey,
@@ -42,6 +46,7 @@ import { matchesReviewTrigger } from '../review/setup.ts';
 import {
 	type AuthorActivityIntent,
 	type Dispatch,
+	type MergeRiskIntent,
 	type PersonaAssignmentIntent,
 	type PrSafetyIntent,
 	type ReleaseSecurityRerequestIntent,
@@ -106,9 +111,50 @@ export const githubChannel = createGitHubChannel<AppHonoEnv>({
 					dispatch.params,
 					delivery,
 				);
+			case 'merge-risk':
+				return dispatchMergeRisk(c.env, dispatch.params, delivery);
 		}
 	},
 });
+
+/**
+ * Start a merge-risk assessment once Factory's own review check completes.
+ * The check name alone is not proof it is Factory's: the app id on the
+ * check run is compared against this installation's app before anything
+ * runs.
+ */
+async function dispatchMergeRisk(
+	env: AppHonoEnv['Bindings'],
+	intent: MergeRiskIntent,
+	delivery: DeliveryContext,
+): Promise<Response> {
+	const decline = (reason: string) => {
+		logAdmitted(delivery, 'merge-risk', 'rejected', reason);
+		return Response.json({ accepted: false, reason });
+	};
+	if (intent.appId !== Number(env.GITHUB_APP_ID)) {
+		return decline('Check run belongs to a different GitHub App.');
+	}
+	const params = v.parse(mergeRiskWorkflowParamsSchema, {
+		deliveryId: intent.deliveryId,
+		installationId: intent.installationId,
+		repositoryId: intent.repositoryId,
+		owner: intent.owner,
+		repo: intent.repo,
+		pullNumber: intent.pullNumber,
+		headSha: intent.headSha,
+	});
+	const coordinator = env.MERGE_RISK_COORDINATOR.getByName(
+		mergeRiskCoordinatorKey(params),
+	);
+	const admission = await coordinator.enqueue(params);
+	logAdmitted(delivery, 'merge-risk', admission.disposition);
+	return Response.json({
+		accepted: true,
+		capability: 'merge-risk',
+		...admission,
+	});
+}
 
 async function dispatchReview(
 	env: AppHonoEnv['Bindings'],
@@ -590,6 +636,11 @@ function routedTarget(dispatch: Dispatch): Record<string, unknown> {
 				pullNumber: dispatch.params.pullNumber,
 				mode: dispatch.params.mode,
 			};
+		case 'merge-risk':
+			return {
+				repo: `${dispatch.params.owner}/${dispatch.params.repo}`,
+				pullNumber: dispatch.params.pullNumber,
+			};
 	}
 }
 
@@ -609,7 +660,8 @@ function logAdmitted(
 		| 'pr-safety'
 		| 'adversary'
 		| 'author'
-		| 'persona',
+		| 'persona'
+		| 'merge-risk',
 	disposition: string,
 	reason?: string,
 ): void {

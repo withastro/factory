@@ -83,6 +83,10 @@
 			{
 				"name": "PR_SAFETY_SANDBOX",
 				"class_name": "Sandbox"
+			},
+			{
+				"name": "MERGE_RISK_COORDINATOR",
+				"class_name": "MergeRiskCoordinator"
 			}
 		]
 	},
@@ -121,6 +125,11 @@
 			"name": "factory-pr-safety",
 			"binding": "PR_SAFETY_WORKFLOW",
 			"class_name": "PrSafetyWorkflow"
+		},
+		{
+			"name": "factory-merge-risk",
+			"binding": "MERGE_RISK_WORKFLOW",
+			"class_name": "MergeRiskWorkflow"
 		}
 	],
 	"observability": {
@@ -190,6 +199,13 @@
 		{
 			"tag": "v9",
 			"new_sqlite_classes": ["FluePrSafetyReviewerAgent", "PrSafetyCoordinator"]
+		},
+		{
+			"tag": "v10",
+			"new_sqlite_classes": [
+				"FlueMergeRiskAssessorAgent",
+				"MergeRiskCoordinator"
+			]
 		}
 	]
 }
