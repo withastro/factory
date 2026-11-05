@@ -5,6 +5,8 @@ import type { AdvisoryWorkflowParams } from './advisory/contracts.ts';
 import type { AdvisoryCoordinator } from './advisory/coordinator.ts';
 import type { AuthorWorkflowParams } from './author/contracts.ts';
 import type { AuthorCoordinator } from './author/coordinator.ts';
+import type { MergeRiskWorkflowParams } from './merge-risk/contracts.ts';
+import type { MergeRiskCoordinator } from './merge-risk/coordinator.ts';
 import type { PrSafetyWorkflowParams } from './pr-safety/contracts.ts';
 import type { PrSafetyCoordinator } from './pr-safety/coordinator.ts';
 import type { ReleaseSecurityWorkflowParams } from './release-security/contracts.ts';
@@ -32,6 +34,8 @@ export interface WorkerEnv
 	ADVERSARY_ARTIFACTS: R2Bucket;
 	AUTHOR_COORDINATOR: DurableObjectNamespace<AuthorCoordinator>;
 	AUTHOR_WORKFLOW: Workflow<AuthorWorkflowParams>;
+	MERGE_RISK_COORDINATOR: DurableObjectNamespace<MergeRiskCoordinator>;
+	MERGE_RISK_WORKFLOW: Workflow<MergeRiskWorkflowParams>;
 	PR_SAFETY_COORDINATOR: DurableObjectNamespace<PrSafetyCoordinator>;
 	PR_SAFETY_SANDBOX: DurableObjectNamespace<Sandbox>;
 	PR_SAFETY_WORKFLOW: Workflow<PrSafetyWorkflowParams>;

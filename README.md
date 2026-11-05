@@ -37,7 +37,8 @@ GitHub webhooks ─→ Hono ingress (signature verification)
                         ├→ AuthorCoordinator DO (one per PR) ─→ AuthorWorkflow ─→ CodeAuthor agent (one conversation per PR)
                         ├→ AdvisoryCoordinator DO (one per advisory) ─→ AdvisoryWorkflow ─→ AdvisoryTriager agent ─→ Discord
                         ├→ ReleaseSecurityCoordinator DO (one per PR) ─→ ReleaseSecurityWorkflow ─→ ReleaseSecurityReviewer agent
-                        └→ PrSafetyCoordinator DO (one per PR) ─→ PrSafetyWorkflow ─→ rule signals + PrSafetyReviewer agent ─→ Discord
+                        ├→ PrSafetyCoordinator DO (one per PR) ─→ PrSafetyWorkflow ─→ rule signals + PrSafetyReviewer agent ─→ Discord
+                        └→ MergeRiskCoordinator DO (one per PR) ─→ MergeRiskWorkflow ─→ MergeRiskAssessor agent ─→ one scored PR comment
 ```
 
 - **Router** (`src/router.ts`): deterministic and pure. `pull_request.labeled`
@@ -47,8 +48,9 @@ GitHub webhooks ─→ Hono ingress (signature verification)
   `repository_advisory.reported` → advisory triage; `pull_request.opened|reopened|synchronize`
   from non-maintainers and dependency bots → [PR safety](#pr-safety-srcpr-safety); human reviews,
   review comments, comments, and failed checks on Factory pull requests → the
-  code author. Bot activity is dropped at the door to prevent self-trigger
-  loops.
+  code author; `check_run.completed` on Factory's own `Factory Review` check
+  → [merge risk](#merge-risk-srcmerge-risk). Bot activity is dropped at the
+  door to prevent self-trigger loops.
 - **Coordinators** (`src/coordination/queue-coordinator.ts`): a Durable Object
   per entity serializes work — one active workflow, one pending (newest wins),
   delivery-id dedupe, and a reconcile alarm for self-healing. This replaces
@@ -244,6 +246,22 @@ and so is an `INCOMPLETE` review that had high-severity signals. On GitHub the
 `Factory PR safety` check always concludes `neutral` with the same text, so it
 never tells a contributor whether their change was flagged. Nothing in the
 checkout is executed.
+
+### Merge risk (`src/merge-risk/`)
+
+Assessment only — it never approves, blocks, or merges anything. Once
+Factory's own `Factory Review` check completes on a pull request (triggered
+by the configured review label or by requesting the reviewer persona, never
+on every push, to keep unreviewed pull requests free), a lightweight agent
+reads the pull request's metadata, full changed-file list, check
+conclusions, and review states — no repository checkout, no tools — and
+scores five categories from `skills/merge-risk/SKILL.md`: alignment, impact
+(size, breadth, and sensitive areas), verification, rollback cost, and error
+detection. Only trusted workflow code turns those `good`/`ok`/`poor`
+verdicts into an overall low/medium/high score, with fixed weights, the same
+way a review's verdict is decided from structured findings rather than the
+model's own words. One comment per pull request, found and updated by a
+marker on every re-assessment rather than piling up new ones.
 
 ### Advisory triage (`src/advisory/`)
 
