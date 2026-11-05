@@ -5,10 +5,7 @@ license: MIT
 metadata:
   author: matthewp
   version: "1.0"
-  credits:
-    skill: merge-risk
-    author: Matt Pocock
-    url: "https://github.com/mattpocock/skills/blob/main/skills/engineering/pr/SKILL.md"
+  credits: "Adapted from Matt Pocock's merge-risk skill: https://github.com/mattpocock/skills/blob/main/skills/engineering/pr/SKILL.md"
 ---
 
 # Merge Risk Assessment
