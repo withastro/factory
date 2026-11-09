@@ -1301,6 +1301,22 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 			return { outcome: 'no-retriage', reason: decision.reasoning };
 		}
 
+		// New actionable information — run the full pipeline from the staging label.
+		return this.restartTriage(step, client, credentials, params, routed);
+	}
+
+	/**
+	 * Moves the issue from its current label to the staging label and runs the
+	 * full triage pipeline again.
+	 */
+	private async restartTriage(
+		step: WorkflowStep,
+		client: () => Promise<InstallationClient>,
+		credentials: GitHubCredentials,
+		params: TriageWorkflowParams,
+		routed: RoutedIssue,
+	): Promise<TriageWorkflowOutcome> {
+		const { issue, triage } = routed;
 		await step.do('swap label to needs-triage', STEP_RETRIES, async () => {
 			const api = await client();
 			await ensureLabelExists(
@@ -1320,7 +1336,6 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 			);
 		});
 
-		// New actionable information — run the full pipeline from the staging label.
 		return this.triage(step, client, credentials, params, {
 			...routed,
 			issue: { ...issue, currentLabel: triage.labels.needsTriage },
@@ -1434,17 +1449,18 @@ export class TriageWorkflow extends WorkflowEntrypoint<
 					params.owner,
 					params.repo,
 					params.issueNumber,
-					`The candidate fix was rejected: ${verdict.reasoning}\n\nRe-evaluating whether the feedback warrants a new triage attempt.`,
+					`The candidate fix was rejected: ${verdict.reasoning}\n\nStarting a new triage attempt with this feedback.`,
 				);
 			});
 
 			// The comment that rejected the fix already carries whatever new,
 			// actionable information prompted the rejection — most often a
-			// concrete regression and a suggested fix, as here. Don't park the
-			// issue waiting on a second human comment to notice: feed the same
-			// conversation straight into the retriage judge now that the label
-			// reflects the rejection.
-			return this.retriage(step, client, credentials, params, {
+			// concrete regression and a suggested fix. The verifier has already
+			// judged that feedback actionable, so restart triage directly rather
+			// than asking the RetriageJudge again: the judge doesn't see the
+			// verdict and only looks for new reproduction info, so it would
+			// second-guess the rejection and silently drop the feedback.
+			return this.restartTriage(step, client, credentials, params, {
 				...routed,
 				issue: { ...issue, currentLabel: triage.labels.fixRejected },
 			});
