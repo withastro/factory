@@ -25,7 +25,7 @@ const EXPECTED_WORKSPACES = [
 	'triage/*',
 ];
 const WORKSPACE_MANIFEST =
-	/^packages\/(?:[^/]+|(?:integrations|language-tools|markdown)\/[^/]+)\/package\.json$/;
+	/^packages\/(?:[^/]+|(?:integrations|language-tools|markdown|renderers)\/[^/]+)\/package\.json$/;
 const SHA = /^[0-9a-f]{40}$/;
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const SEMVER =
