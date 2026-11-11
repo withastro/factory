@@ -230,6 +230,67 @@ describe('release package baselines', () => {
 		);
 	});
 
+	it('includes renderer packages nested under packages/renderers', async () => {
+		const base = input.baseSha;
+		const head = input.headSha;
+		const handler = astroRepo();
+		const rendererFiles: Record<string, string> = {
+			[`${base}:packages/renderers/svelte/package.json`]: manifest(
+				'@astrojs/svelte-renderer',
+				'0.1.0',
+			),
+			[`${head}:packages/renderers/svelte/package.json`]: manifest(
+				'@astrojs/svelte-renderer',
+				'0.2.0',
+			),
+		};
+		const tree = [
+			'packages/astro/package.json',
+			'packages/integrations/vercel/package.json',
+			'packages/renderers/svelte/package.json',
+			'packages/astro/test/fixtures/basic/package.json',
+		].join('\0');
+		const withRenderers: GitHandler = (command) => {
+			if (command.startsWith('git show ')) {
+				const key = command.slice('git show '.length);
+				if (key in rendererFiles) return rendererFiles[key];
+			}
+			if (command.startsWith('git ls-tree ')) return tree;
+			if (
+				command ===
+				'git check-ref-format refs/tags/@astrojs/svelte-renderer@0.1.0'
+			)
+				return '';
+			if (command === 'git fetch ') return '';
+			if (command === 'git tag --list')
+				return 'astro@6.0.0\n@astrojs/svelte-renderer@0.1.0\n';
+			if (
+				command ===
+				'git rev-parse --verify refs/tags/@astrojs/svelte-renderer@0.1.0^{commit}'
+			)
+				return `${'e'.repeat(40)}\n`;
+			if (command === `git merge-base --is-ancestor ${'e'.repeat(40)} ${base}`)
+				return '';
+			return handler(command);
+		};
+		const { sandbox } = fakeSandbox(withRenderers);
+
+		await expect(
+			prepareReleaseBaselines(sandbox, input),
+		).resolves.toMatchObject({
+			packages: expect.arrayContaining([
+				{
+					name: '@astrojs/svelte-renderer',
+					directory: 'packages/renderers/svelte',
+					previousVersion: '0.1.0',
+					newVersion: '0.2.0',
+					previousTag: '@astrojs/svelte-renderer@0.1.0',
+					previousCommit: 'e'.repeat(40),
+				},
+			]),
+		});
+	});
+
 	it('fails closed when pnpm-workspace.yaml cannot be parsed', async () => {
 		const { sandbox } = fakeSandbox(
 			astroRepo({ workspace: { head: "packages: ['packages/*']\n" } }),
