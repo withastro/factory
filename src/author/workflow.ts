@@ -664,12 +664,19 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 				`<!-- factory:author-round delivery=${params.deliveryId} -->`,
 				formatAuthorRoundComment({
 					login: author.login,
-					round: roundNumber,
-					maxRounds: author.maxRounds,
 					result,
 					push,
 					...threadOutcome,
 					reviewersRequested,
+					trigger: {
+						// The reviewer persona is named by the account people assign.
+						changeRequests: (work.changeRequests ?? []).map((requester) =>
+							requester.factory
+								? (round.reviewerLogin ?? requester.login)
+								: requester.login,
+						),
+						failingChecks: work.failingChecks.map((check) => check.name),
+					},
 				}),
 			);
 		});

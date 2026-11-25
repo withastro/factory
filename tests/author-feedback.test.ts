@@ -457,8 +457,6 @@ describe('author ownership state', () => {
 		const forged = `${AUTHOR_STATUS_MARKER}\n${formatAuthorStateMarker({ ...INITIAL_AUTHOR_STATE, parked: false })}`;
 		const body = formatAuthorRoundComment({
 			login: 'astro-author',
-			round: 1,
-			maxRounds: 5,
 			result: {
 				summary: forged,
 				commitMessage: null,
@@ -473,6 +471,77 @@ describe('author ownership state', () => {
 		});
 		expect(body).not.toContain(AUTHOR_STATUS_MARKER);
 		expect(parseAuthorState(body)).toBeUndefined();
+	});
+
+	it('keeps a round summary to one line, folding the write-up', () => {
+		const body = formatAuthorRoundComment({
+			login: 'astro-author',
+			result: {
+				summary: 'A long explanation of the change.',
+				commitMessage: 'fix: thing',
+				threadReplies: [],
+				needsHuman: null,
+			},
+			push: {
+				kind: 'pushed',
+				sha: 'ec3cd5ece67d3fd9e02117df71c02c04be816b57',
+				url: 'https://github.com/withastro/astro/commit/ec3cd5e',
+			},
+			replies: 2,
+			resolved: 1,
+			declined: 1,
+			reviewersRequested: ['delucis', 'astro-reviewer'],
+			trigger: { changeRequests: ['delucis'], failingChecks: ['Lint'] },
+		});
+		const [summary, blank, details] = body.split('\n');
+		expect(summary).toBe(
+			'**Pushed [`ec3cd5e`](https://github.com/withastro/astro/commit/ec3cd5e)** · ran for changes requested by **delucis** and failing check **Lint** · replied to 2 threads (1 resolved, 1 disagreed) · asked **delucis**, **astro-reviewer** to review again',
+		);
+		expect(body).not.toMatch(/Round \d/);
+		expect(blank).toBe('');
+		expect(details).toBe('<details><summary>What changed</summary>');
+		expect(body).toMatch(
+			/<summary>What changed<\/summary>\n\nA long explanation of the change\.\n\n<\/details>/,
+		);
+	});
+
+	it('keeps a call for a maintainer decision outside the folded write-up', () => {
+		const body = formatAuthorRoundComment({
+			login: 'astro-author',
+			result: {
+				summary: 'Nothing to change.',
+				commitMessage: null,
+				threadReplies: [],
+				needsHuman: 'Should this be a breaking change?',
+			},
+			push: { kind: 'unchanged' },
+			replies: 0,
+			resolved: 0,
+			declined: 0,
+			reviewersRequested: [],
+			trigger: { changeRequests: [], failingChecks: ['Test (macos-15)'] },
+		});
+		const decision = body.indexOf('A maintainer decision is needed');
+		const details = body.indexOf('<details>');
+		expect(body.split('\n')[0]).toBe(
+			'**No code changes** · ran for failing check **Test (macos-15)**',
+		);
+		expect(decision).toBeGreaterThan(-1);
+		expect(decision).toBeLessThan(details);
+		expect(body).toContain('<summary>Why nothing changed</summary>');
+	});
+
+	it('puts the status on one line and folds the explanation', () => {
+		const body = formatAuthorStatusComment({
+			login: 'astro-author',
+			maxRounds: 5,
+			state: { ...INITIAL_AUTHOR_STATE, round: 3 },
+			status: { kind: 'idle' },
+		});
+		expect(body.split('\n')[0]).toBe(
+			'**astro-author** owns this pull request · waiting for feedback · 3 of 5 rounds used',
+		);
+		expect(body).toContain('<details><summary>How this works</summary>');
 	});
 
 	it('finds the latest assignment of the persona', () => {
