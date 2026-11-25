@@ -24,6 +24,14 @@ export interface WorkerEnv
 	GITHUB_APP_ID: string;
 	GITHUB_APP_PRIVATE_KEY: string;
 	GITHUB_WEBHOOK_SECRET: string;
+	/**
+	 * Optional GitHub Apps the reviewer and author personas write as. Without
+	 * them, a persona writes as the main App. See `github/identity.ts`.
+	 */
+	GITHUB_REVIEWER_APP_ID?: string;
+	GITHUB_REVIEWER_APP_PRIVATE_KEY?: string;
+	GITHUB_AUTHOR_APP_ID?: string;
+	GITHUB_AUTHOR_APP_PRIVATE_KEY?: string;
 	/** Bot token for Factory's Discord application. */
 	DISCORD_BOT_TOKEN?: string;
 	ADVISORY_COORDINATOR: DurableObjectNamespace<AdvisoryCoordinator>;

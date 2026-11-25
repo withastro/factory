@@ -321,20 +321,42 @@ into:
    hands the pull request to a human the same way.
 
 A human "Request changes" review starts an author round too, and failing
-checks do as well. GitHub doesn't let an App approve or request changes on
-a pull request it opened itself, which covers every triage fix. There the
-reviewer's verdict is posted as a comment review that states the verdict,
-and the author acts on it just the same. On other pull requests the
-verdict is a real GitHub approval or change request, and a change request
-may block merging until the reviewer approves or someone dismisses it.
-Label-triggered reviews stay plain comments with no verdict.
+checks do as well. The verdict is a real GitHub approval or change request,
+and a change request may block merging until the reviewer approves or
+someone dismisses it. GitHub doesn't let an App approve or request changes
+on a pull request it opened itself, so where the reviewer writes as the same
+App that opened the pull request (every triage fix, when the reviewer has no
+[App of its own](#persona-apps)), the verdict is posted as a comment review
+that states it, and the author acts on it just the same. Label-triggered
+reviews stay plain comments with no verdict.
 
 GitHub App accounts can't be assigned or asked for review, so each persona
-is a plain GitHub **user account** with enough repository access to be
-assignable: `astro-triage`, `astro-reviewer`, and `astro-author` by default.
-The accounts are inert handles: Factory never signs in as them and holds no
-credentials for them. Everything is still written by the GitHub App, signed
-with the persona's name.
+is addressed through a plain GitHub **user account** with enough repository
+access to be assignable: `astro-triage`, `astro-reviewer`, and
+`astro-author` by default. The accounts are inert handles: Factory never
+signs in as them and holds no credentials for them.
+
+### Persona apps
+
+The reviewer and author can each write as their own GitHub App, so their
+reviews, replies, and commits come from `<app>[bot]` rather than all
+appearing as the main App. A persona App only writes: it needs no webhook,
+and the main App still receives every event and does everything else
+(triage, checks, labels, review requests).
+
+| Persona App | Writes                                                                   | Permissions                                                                           |
+| ----------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Reviewer    | Reviews and their inline findings; resolves its addressed threads        | Pull requests (read/write), Contents (read/write — required by `resolveReviewThread`) |
+| Author      | Status comment, thread replies and resolutions, round summaries, commits | Contents (read/write), Pull requests (read/write), Issues (read/write)                |
+
+Register each App with its webhook disabled, install it on the same
+repositories as the main App, and set `GITHUB_REVIEWER_APP_ID` and
+`GITHUB_REVIEWER_APP_PRIVATE_KEY` (or the `GITHUB_AUTHOR_APP_*` pair). A
+persona without an App, or whose App isn't installed on a repository,
+writes as the main App. Output the main App wrote for a persona before it
+had an App of its own (reviews, declined replies, the author's status
+comment) is still recognized, so pull requests already in the loop carry
+on.
 
 Personas need no configuration. All three are on by default, except that
 the reviewer only exists where a `review` section configures what it
@@ -634,7 +656,10 @@ Three deliberate design choices:
   `FACTORY_AI_GATEWAY_TOKEN`, `FACTORY_AI_GATEWAY_ACCOUNT_ID`, and
   `FACTORY_AI_GATEWAY_ID`. The gateway connection values deliberately use
   Factory-scoped names so Wrangler cannot mistake the remote gateway account
-  or token for Factory's deployment credentials.
+  or token for Factory's deployment credentials. Optional
+  [persona Apps](#persona-apps) add `GITHUB_REVIEWER_APP_ID`,
+  `GITHUB_REVIEWER_APP_PRIVATE_KEY`, `GITHUB_AUTHOR_APP_ID`, and
+  `GITHUB_AUTHOR_APP_PRIVATE_KEY`.
 
 Advisory triage posts to Discord as a bot. Create a Discord application with
 a private bot, add it to the server, and allow it to view, send messages,

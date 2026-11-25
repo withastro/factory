@@ -24,9 +24,9 @@ export interface PublishReviewInput {
 /**
  * Publish a review. Label-triggered reviews are plain comments. Persona
  * reviews carry a verdict: APPROVE, REQUEST_CHANGES, or (for a stand-still) a
- * comment. Where GitHub refuses the verdict because the App opened the pull
- * request itself, the review falls back to a comment and the verdict lives in
- * its body and hidden marker.
+ * comment. Where GitHub refuses the verdict because the reviewer writes as the
+ * App that opened the pull request, the review falls back to a comment and the
+ * verdict lives in its body and hidden marker.
  */
 export async function publishReview(
 	client: InstallationClient,

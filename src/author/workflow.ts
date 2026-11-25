@@ -13,6 +13,12 @@ import {
 	credentialsFromWorkerEnv,
 	type InstallationClient,
 } from '../github/client.ts';
+import {
+	createPersonaClient,
+	createPersonaScopedToken,
+	type FactoryIdentities,
+	resolveFactoryIdentities,
+} from '../github/identity.ts';
 import { upsertIssueComment } from '../github/issues.ts';
 import { readSkillSnapshot } from '../github/skill.ts';
 import {
@@ -68,6 +74,7 @@ import {
 	selectAuthorWork,
 } from './feedback.ts';
 import {
+	deleteStatusComment,
 	findStatusComment,
 	loadCheckLogTail,
 	loadFailingChecks,
@@ -102,7 +109,14 @@ interface ReadyRound {
 	/** Every piece of feedback created at or before this instant is in `work`. */
 	snapshotAt: string;
 	pull: { title: string; headRef: string; headSha: string; baseRef: string };
+	/** The status comment, when the App the persona writes as wrote it. */
 	statusCommentId: number | null;
+	/**
+	 * A status comment another Factory App wrote: the main App, before the
+	 * persona had an App of its own. Its state carries over; the comment is
+	 * deleted once the persona's own comment replaces it.
+	 */
+	legacyStatusCommentId?: number | null;
 	state: AuthorState;
 	adopted: boolean;
 	work: AuthorWork;
@@ -163,9 +177,17 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 		};
 
 		const credentials = credentialsFromWorkerEnv(this.env);
-		const appId = Number(this.env.GITHUB_APP_ID);
 		const client = () =>
 			createInstallationClient(credentials, params.installationId);
+		// What the persona says (status, replies, summaries) and pushes goes
+		// out as its own App when it has one; reads, review requests, and
+		// labels stay with the main App.
+		const authorClient = () =>
+			createPersonaClient(this.env, 'author', {
+				owner: params.owner,
+				repo: params.repo,
+				installationId: params.installationId,
+			});
 		const ref = {
 			owner: params.owner,
 			repo: params.repo,
@@ -175,32 +197,54 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 		const round = await step.do(
 			'load pull request and feedback',
 			STEP_RETRIES,
-			async () => loadRound(await client(), params, appId),
+			async () =>
+				loadRound(
+					await client(),
+					params,
+					await resolveFactoryIdentities(this.env),
+					(await authorClient()).identity.appId,
+				),
 		);
 		if (round.kind === 'ignored') {
 			return finish({ outcome: 'ignored', reason: round.reason });
 		}
 
 		const { author, work } = round;
+		const writeStatus = async (
+			existingId: number | null,
+			state: AuthorState,
+			status: AuthorStatus,
+		) => {
+			const writer = await authorClient();
+			const id = await saveStatusComment(
+				writer.client,
+				ref,
+				existingId,
+				formatAuthorStatusComment({
+					login: author.login,
+					maxRounds: author.maxRounds,
+					state,
+					status,
+				}),
+				AUTHOR_STATUS_MARKER,
+				writer.identity.appId,
+			);
+			if (round.legacyStatusCommentId) {
+				await deleteStatusComment(
+					await client(),
+					ref,
+					round.legacyStatusCommentId,
+				);
+			}
+			return id;
+		};
 		const saveStatus = (
 			name: string,
 			state: AuthorState,
 			status: AuthorStatus,
 		) =>
 			step.do(`update author status: ${name}`, STEP_RETRIES, async () =>
-				saveStatusComment(
-					await client(),
-					ref,
-					round.statusCommentId,
-					formatAuthorStatusComment({
-						login: author.login,
-						maxRounds: author.maxRounds,
-						state,
-						status,
-					}),
-					AUTHOR_STATUS_MARKER,
-					appId,
-				),
+				writeStatus(round.statusCommentId, state, status),
 			);
 
 		if (!work.hasNewActivity) {
@@ -226,7 +270,7 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 			await step.do('hand off to a human', STEP_RETRIES, async () => {
 				const api = await client();
 				await upsertIssueComment(
-					api,
+					(await authorClient()).client,
 					params.owner,
 					params.repo,
 					params.pullNumber,
@@ -260,19 +304,7 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 			status: AuthorStatus,
 		) =>
 			step.do(`update author status: ${name}`, STEP_RETRIES, async () =>
-				saveStatusComment(
-					await client(),
-					ref,
-					statusCommentId,
-					formatAuthorStatusComment({
-						login: author.login,
-						maxRounds: author.maxRounds,
-						state,
-						status,
-					}),
-					AUTHOR_STATUS_MARKER,
-					appId,
-				),
+				writeStatus(statusCommentId, state, status),
 			);
 
 		const sandboxId = authorSandboxId(params.repositoryId, params.pullNumber);
@@ -282,6 +314,7 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 			outcome = await this.runRound(
 				step,
 				client,
+				async () => (await authorClient()).client,
 				params,
 				round,
 				roundNumber,
@@ -330,6 +363,7 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 	private async runRound(
 		step: WorkflowStep,
 		client: () => Promise<InstallationClient>,
+		authorClient: () => Promise<InstallationClient>,
 		params: AuthorWorkflowParams,
 		round: ReadyRound,
 		roundNumber: number,
@@ -535,10 +569,15 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 					return { kind: 'unchanged' as const };
 				}
 				// The token exists only inside this step and is scoped to
-				// repository contents.
-				const token = await createScopedInstallationToken(
-					credentials,
-					params.installationId,
+				// repository contents. Commits are pushed as the author persona.
+				const token = await createPersonaScopedToken(
+					this.env,
+					'author',
+					{
+						owner: params.owner,
+						repo: params.repo,
+						installationId: params.installationId,
+					},
 					{ contents: 'write' },
 				);
 				const pushed = await commitAndPushFastForward(sandbox(), {
@@ -571,7 +610,7 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 					`reply to review thread ${reply.threadId}`,
 					STEP_RETRIES,
 					async () => {
-						const api = await client();
+						const api = await authorClient();
 						await replyToReviewThread(
 							api,
 							reply.threadId,
@@ -616,7 +655,7 @@ export class AuthorWorkflow extends WorkflowEntrypoint<
 					});
 
 		await step.do('post author round summary', STEP_RETRIES, async () => {
-			const api = await client();
+			const api = await authorClient();
 			await upsertIssueComment(
 				api,
 				params.owner,
@@ -667,7 +706,9 @@ async function ensureRoundWorkspace(
 async function loadRound(
 	api: InstallationClient,
 	params: AuthorWorkflowParams,
-	appId: number,
+	identities: FactoryIdentities,
+	/** The App the persona writes as on this repository. */
+	writerAppId: number,
 ): Promise<LoadedRound> {
 	const { config } = await loadFactoryConfig(
 		api,
@@ -694,12 +735,17 @@ async function loadRound(
 	const snapshot = await resolveWriteAccess(
 		api,
 		ref,
-		await loadPullRequestSnapshot(api, ref),
+		await loadPullRequestSnapshot(api, ref, identities),
 	);
 	const ownership = checkOwnership(snapshot, author.login);
 	if (ownership) return { kind: 'ignored', reason: ownership };
 
-	const status = await findStatusComment(api, ref, AUTHOR_STATUS_MARKER, appId);
+	// The persona's own comment wins; one the main App wrote before the
+	// persona had an App still carries its state and budget.
+	const status = await findStatusComment(api, ref, AUTHOR_STATUS_MARKER, [
+		...new Set([writerAppId, identities.author.appId, identities.main.appId]),
+	]);
+	const ownStatus = status?.appId === writerAppId ? status : null;
 	const assignedAt = latestAssignmentAt(snapshot, author.login);
 	const recorded = status ? parseAuthorState(status.body) : undefined;
 	const adopted = !recorded || recorded.assignedAt !== assignedAt;
@@ -731,7 +777,8 @@ async function loadRound(
 			headSha: snapshot.headSha,
 			baseRef: snapshot.baseRef,
 		},
-		statusCommentId: status?.id ?? null,
+		statusCommentId: ownStatus?.id ?? null,
+		legacyStatusCommentId: status && !ownStatus ? status.id : null,
 		state,
 		adopted,
 		work,

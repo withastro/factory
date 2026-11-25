@@ -99,7 +99,7 @@ export type AuthorAgentInput = v.InferOutput<typeof authorAgentInputSchema>;
 export interface FeedbackAuthor {
 	login: string;
 	association: string;
-	/** Written by this Factory installation (e.g. the reviewer persona). */
+	/** Written by one of Factory's Apps (e.g. the reviewer persona). */
 	factory: boolean;
 	bot: boolean;
 	/**

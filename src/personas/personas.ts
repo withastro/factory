@@ -17,8 +17,9 @@
  * See `handoff.ts` for how the personas pass a pull request between them.
  *
  * The persona accounts are inert handles: Factory never signs in as them and
- * holds no credential for them. Everything Factory writes still comes from the
- * GitHub App installation, signed with the persona's name.
+ * holds no credential for them. What a persona writes comes from its own
+ * GitHub App when it has one, or the main App otherwise (see
+ * `github/identity.ts`), signed with the persona's name.
  */
 
 import type { PersonasConfig } from '../config.ts';
@@ -72,7 +73,8 @@ export function personaSignature(login: string): string {
 
 /**
  * Hidden marker on an author persona's thread reply that declines a review
- * finding. The reviewer persona reads it (only from replies this App wrote)
+ * finding. The reviewer persona reads it (only from replies the author
+ * persona's App, or the main App, wrote)
  * to tell a standing disagreement from a finding nobody has answered yet.
  */
 export const AUTHOR_DECLINED_MARKER = '<!-- factory:author-declined -->';

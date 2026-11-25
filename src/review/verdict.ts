@@ -68,8 +68,9 @@ export function decideReviewVerdict(input: {
  * Hidden marker on a persona review naming its verdict. The review's GitHub
  * state carries the verdict too, except where GitHub refuses it: an App
  * can't approve or request changes on a pull request it opened itself (every
- * triage fix), so there the review is posted as a comment and this marker is
- * what the author persona acts on. Only trusted when this App wrote it.
+ * triage fix, when the reviewer writes as the main App), so there the review
+ * is posted as a comment and this marker is what the author persona acts on.
+ * Only trusted from the reviewer persona's App or the main App.
  */
 export function verdictMarker(kind: ReviewVerdict['kind']): string {
 	return `<!-- factory-review-verdict:${kind} -->`;

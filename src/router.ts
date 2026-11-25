@@ -550,7 +550,8 @@ const FAILED_CONCLUSIONS = new Set(['failure', 'timed_out']);
  * A review requesting changes: GitHub's CHANGES_REQUESTED state, or the
  * reviewer persona's comment-review verdict on a pull request this App
  * opened, where GitHub refuses the App a real "request changes". The marker
- * is trusted only once the workflow confirms this App wrote the review.
+ * is trusted only once the workflow confirms the reviewer persona's App (or
+ * the main App) wrote the review.
  */
 function requestsChanges(review: WebhookPayload['review']): boolean {
 	const state = review?.state?.toLowerCase();
@@ -593,7 +594,7 @@ function routeAuthorActivity(
 		// Requested changes are the author's only review signal; comments and
 		// approvals are read as context when a round runs. A bot's review is
 		// let through because the reviewer persona's verdict is published by
-		// this App; the workflow trusts only maintainers and this App.
+		// a Factory App; the workflow trusts only maintainers and Factory's Apps.
 		if (!requestsChanges(payload.review)) {
 			return {
 				kind: 'none',

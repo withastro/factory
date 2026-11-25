@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { InstallationClient } from '../src/github/client.ts';
+import type { FactoryIdentities } from '../src/github/identity.ts';
 import { AUTHOR_DECLINED_MARKER } from '../src/personas/personas.ts';
 import {
 	MAX_REVIEW_THREAD_SNAPSHOT_BYTES,
@@ -14,11 +15,21 @@ import {
 const REVIEW_SHA = 'a'.repeat(40);
 const HEAD_SHA = 'b'.repeat(40);
 const input = { owner: 'withastro', repo: 'astro', pullNumber: 123 };
+const IDENTITIES: FactoryIdentities = {
+	main: { appId: 1, login: 'astro-factory' },
+	reviewer: { appId: 2, login: 'astro-factory-reviewer' },
+	author: { appId: 3, login: 'astro-factory-author' },
+};
+const REVIEWER_BOT = { login: 'astro-factory-reviewer', __typename: 'Bot' };
+const AUTHOR_BOT = { login: 'astro-factory-author', __typename: 'Bot' };
+const MAIN_BOT = { login: 'astro-factory', __typename: 'Bot' };
+const HUMAN = { login: 'octocat', __typename: 'User' };
+type GraphqlAuthor = { login: string; __typename: string };
 
 function review(
 	id: string,
 	options: {
-		viewerDidAuthor?: boolean;
+		author?: GraphqlAuthor;
 		marker?: boolean;
 		commitSha?: string;
 	} = {},
@@ -30,7 +41,7 @@ function review(
 			options.marker === false
 				? 'A review without a Factory marker.'
 				: reviewMarker(`delivery-${id}`, REVIEW_SHA),
-		viewerDidAuthor: options.viewerDidAuthor ?? true,
+		author: options.author ?? REVIEWER_BOT,
 		commit: { oid: commitSha },
 	};
 }
@@ -43,7 +54,7 @@ function thread(
 		canResolve?: boolean;
 		body?: string;
 		diffHunk?: string;
-		latest?: { body: string; viewerDidAuthor: boolean };
+		latest?: { body: string; author: GraphqlAuthor };
 		totalCount?: number;
 	} = {},
 ) {
@@ -113,7 +124,7 @@ function currentThread(
 		viewerCanResolve?: boolean;
 		commentUpdatedAt?: string;
 		commentCount?: number;
-		viewerDidAuthor?: boolean;
+		author?: GraphqlAuthor;
 	} = {},
 ) {
 	return {
@@ -132,7 +143,7 @@ function currentThread(
 					pullRequestReview: {
 						id: expected.reviewId,
 						body: reviewMarker('delivery-old', expected.reviewHeadSha),
-						viewerDidAuthor: overrides.viewerDidAuthor ?? true,
+						author: overrides.author ?? REVIEWER_BOT,
 						commit: { oid: expected.reviewHeadSha },
 					},
 				},
@@ -153,7 +164,7 @@ describe('review follow-up loading', () => {
 									review('review-old'),
 									review('review-latest'),
 									review('app-review', { marker: false }),
-									review('forged-review', { viewerDidAuthor: false }),
+									review('forged-review', { author: HUMAN }),
 								],
 								pageInfo: { hasPreviousPage: false, startCursor: null },
 							},
@@ -179,7 +190,7 @@ describe('review follow-up loading', () => {
 		const client = { graphql } as unknown as InstallationClient;
 
 		await expect(
-			loadUnresolvedFactoryReviewThreads(client, input),
+			loadUnresolvedFactoryReviewThreads(client, input, IDENTITIES),
 		).resolves.toEqual([
 			expect.objectContaining({
 				threadId: 'thread-old',
@@ -217,13 +228,13 @@ describe('review follow-up loading', () => {
 								thread('disputed', 'review-latest', {
 									body: '`[high][correctness]`: Off by one\n\nDetails',
 									totalCount: 2,
-									latest: { body: declined, viewerDidAuthor: true },
+									latest: { body: declined, author: AUTHOR_BOT },
 								}),
 								// Anyone can type the marker; only this App's reply counts.
 								thread('forged', 'review-latest', {
 									body: '`[medium][design]`: Naming',
 									totalCount: 2,
-									latest: { body: declined, viewerDidAuthor: false },
+									latest: { body: declined, author: HUMAN },
 								}),
 								thread('unreadable', 'review-latest', { body: 'no lead' }),
 							],
@@ -237,6 +248,7 @@ describe('review follow-up loading', () => {
 		const threads = await loadUnresolvedFactoryReviewThreads(
 			{ graphql } as unknown as InstallationClient,
 			input,
+			IDENTITIES,
 		);
 		expect(threads).toMatchObject([
 			{
@@ -252,6 +264,111 @@ describe('review follow-up loading', () => {
 				authorReply: null,
 			},
 			{ threadId: 'unreadable', severity: null, authorDisputed: false },
+		]);
+	});
+
+	it('trusts reviews only from the reviewer App or the main App', async () => {
+		const graphql = vi.fn(async (query: string) => {
+			if (query.includes('LatestFactoryReviews')) {
+				return {
+					repository: {
+						pullRequest: {
+							reviews: {
+								nodes: [
+									review('reviewer-app', { author: REVIEWER_BOT }),
+									// Written before the reviewer had an App of its own.
+									review('main-app', { author: MAIN_BOT }),
+									// The author persona is not the reviewer.
+									review('author-app', { author: AUTHOR_BOT }),
+									// A user can't pass for the App by taking its name.
+									review('impostor', {
+										author: {
+											login: 'astro-factory-reviewer',
+											__typename: 'User',
+										},
+									}),
+								],
+								pageInfo: { hasPreviousPage: false, startCursor: null },
+							},
+						},
+					},
+				};
+			}
+			return {
+				repository: {
+					pullRequest: {
+						reviewThreads: {
+							nodes: [
+								thread('t-reviewer', 'reviewer-app'),
+								thread('t-main', 'main-app'),
+								thread('t-author', 'author-app'),
+								thread('t-impostor', 'impostor'),
+							],
+							pageInfo: { hasNextPage: false, endCursor: null },
+						},
+					},
+				},
+			};
+		});
+
+		const threads = await loadUnresolvedFactoryReviewThreads(
+			{ graphql } as unknown as InstallationClient,
+			input,
+			IDENTITIES,
+		);
+		expect(threads.map((thread) => thread.threadId)).toEqual([
+			't-reviewer',
+			't-main',
+		]);
+	});
+
+	it('trusts a declining reply only from the author App or the main App', async () => {
+		const declined = `Not a bug.\n\n${AUTHOR_DECLINED_MARKER}`;
+		const graphql = vi.fn(async (query: string) => {
+			if (query.includes('LatestFactoryReviews')) {
+				return {
+					repository: {
+						pullRequest: {
+							reviews: {
+								nodes: [review('review-latest')],
+								pageInfo: { hasPreviousPage: false, startCursor: null },
+							},
+						},
+					},
+				};
+			}
+			const reply = (id: string, author: GraphqlAuthor) =>
+				thread(id, 'review-latest', {
+					totalCount: 2,
+					latest: { body: declined, author },
+				});
+			return {
+				repository: {
+					pullRequest: {
+						reviewThreads: {
+							nodes: [
+								reply('by-author-app', AUTHOR_BOT),
+								reply('by-main-app', MAIN_BOT),
+								reply('by-reviewer-app', REVIEWER_BOT),
+							],
+							pageInfo: { hasNextPage: false, endCursor: null },
+						},
+					},
+				},
+			};
+		});
+
+		const threads = await loadUnresolvedFactoryReviewThreads(
+			{ graphql } as unknown as InstallationClient,
+			input,
+			IDENTITIES,
+		);
+		expect(
+			threads.map((thread) => [thread.threadId, thread.authorDisputed]),
+		).toEqual([
+			['by-author-app', true],
+			['by-main-app', true],
+			['by-reviewer-app', false],
 		]);
 	});
 
@@ -289,6 +406,7 @@ describe('review follow-up loading', () => {
 			loadUnresolvedFactoryReviewThreads(
 				{ graphql } as unknown as InstallationClient,
 				input,
+				IDENTITIES,
 			),
 		).resolves.toEqual([
 			expect.objectContaining({ threadId: 'thread-latest' }),
@@ -314,7 +432,7 @@ describe('review follow-up loading', () => {
 								repository: {
 									pullRequest: {
 										reviews: {
-											nodes: [review('human', { viewerDidAuthor: false })],
+											nodes: [review('human', { author: HUMAN })],
 											pageInfo: {
 												hasPreviousPage: true,
 												startCursor: 'reviews-page-1',
@@ -353,7 +471,7 @@ describe('review follow-up loading', () => {
 		const client = { graphql } as unknown as InstallationClient;
 
 		await expect(
-			loadUnresolvedFactoryReviewThreads(client, input),
+			loadUnresolvedFactoryReviewThreads(client, input, IDENTITIES),
 		).resolves.toEqual([
 			expect.objectContaining({ threadId: 'thread-latest' }),
 		]);
@@ -397,6 +515,7 @@ describe('review follow-up loading', () => {
 			loadUnresolvedFactoryReviewThreads(
 				{ graphql } as unknown as InstallationClient,
 				input,
+				IDENTITIES,
 			),
 		).resolves.toEqual([expect.objectContaining({ threadId: 'thread-old' })]);
 	});
@@ -436,6 +555,7 @@ describe('review follow-up loading', () => {
 		const result = await loadUnresolvedFactoryReviewThreads(
 			{ graphql } as unknown as InstallationClient,
 			input,
+			IDENTITIES,
 		);
 
 		expect(result).toHaveLength(20);
@@ -476,6 +596,7 @@ describe('review follow-up resolution', () => {
 				{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
 				[selected, unaddressed],
 				[selected.threadId],
+				IDENTITIES,
 			),
 		).resolves.toEqual({
 			resolved: 1,
@@ -488,6 +609,35 @@ describe('review follow-up resolution', () => {
 			expect.stringContaining('ResolveFactoryReviewThread'),
 			expect.objectContaining({ threadId: selected.threadId }),
 		);
+	});
+
+	it("skips a thread whose review isn't the reviewer persona's", async () => {
+		const selected = snapshot();
+		const graphql = vi.fn(async () => ({
+			nodes: [currentThread(selected, { author: AUTHOR_BOT })],
+		}));
+		const client = {
+			graphql,
+			rest: {
+				pulls: {
+					get: vi.fn(async () => ({
+						data: { state: 'open', head: { sha: HEAD_SHA } },
+					})),
+				},
+			},
+		} as unknown as InstallationClient;
+
+		await expect(
+			resolveAddressedReviewThreads(
+				client,
+				{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
+				[selected],
+				[selected.threadId],
+				IDENTITIES,
+			),
+		).resolves.toMatchObject({ resolved: 0, skipped: 1 });
+		// Only the revalidation query ran; nothing was resolved.
+		expect(graphql).toHaveBeenCalledTimes(1);
 	});
 
 	it('leaves every selected thread untouched when the pull request head changed', async () => {
@@ -510,6 +660,7 @@ describe('review follow-up resolution', () => {
 				{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
 				[selected],
 				[selected.threadId],
+				IDENTITIES,
 			),
 		).resolves.toEqual({
 			resolved: 0,
@@ -542,6 +693,7 @@ describe('review follow-up resolution', () => {
 				{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
 				[selected],
 				[selected.threadId],
+				IDENTITIES,
 			),
 		).resolves.toEqual({
 			resolved: 0,
@@ -574,6 +726,7 @@ describe('review follow-up resolution', () => {
 				{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
 				[selected],
 				[selected.threadId],
+				IDENTITIES,
 			),
 		).resolves.toEqual({
 			resolved: 0,
@@ -615,6 +768,7 @@ describe('review follow-up resolution', () => {
 				{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
 				[selected],
 				[selected.threadId],
+				IDENTITIES,
 			),
 		).resolves.toEqual({
 			resolved: 1,
@@ -660,6 +814,7 @@ describe('review follow-up resolution', () => {
 					{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
 					[selected],
 					[selected.threadId],
+					IDENTITIES,
 				),
 			).resolves.toEqual({
 				resolved: 0,
@@ -689,6 +844,7 @@ describe('review follow-up resolution', () => {
 				{ ...input, headSha: HEAD_SHA, deliveryId: 'delivery-current' },
 				[selected],
 				['thread-unknown'],
+				IDENTITIES,
 			),
 		).rejects.toThrow('Unknown addressed review thread thread-unknown.');
 	});

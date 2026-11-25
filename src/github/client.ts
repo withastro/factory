@@ -73,6 +73,6 @@ function requiredValue(name: string, value: string | undefined): string {
 	return value;
 }
 
-function normalizePrivateKey(value: string): string {
+export function normalizePrivateKey(value: string): string {
 	return value.includes('\\n') ? value.replaceAll('\\n', '\n') : value;
 }
