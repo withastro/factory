@@ -12,6 +12,10 @@ import {
 	type InstallationClient,
 } from '../github/client.ts';
 import {
+	createPersonaClient,
+	resolveFactoryIdentities,
+} from '../github/identity.ts';
+import {
 	removeIssueAssignees,
 	removeLabelIfPresent,
 } from '../github/issues.ts';
@@ -81,6 +85,17 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 				completeCoordination,
 			);
 		const credentials = credentialsFromWorkerEnv(this.env);
+		// Reviews and thread resolutions are the reviewer persona speaking, so
+		// they go out as its own App when it has one. Checks, labels, and
+		// review requests stay with the main App.
+		const reviewerClient = async () =>
+			(
+				await createPersonaClient(this.env, 'reviewer', {
+					owner: trigger.owner,
+					repo: trigger.repo,
+					installationId: trigger.installationId,
+				})
+			).client;
 		const setup = await step.do(
 			'load repository configuration and review skill',
 			{
@@ -123,11 +138,15 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 					credentials,
 					trigger.installationId,
 				);
-				return loadUnresolvedFactoryReviewThreads(client, {
-					owner: trigger.owner,
-					repo: trigger.repo,
-					pullNumber: trigger.pullNumber,
-				});
+				return loadUnresolvedFactoryReviewThreads(
+					client,
+					{
+						owner: trigger.owner,
+						repo: trigger.repo,
+						pullNumber: trigger.pullNumber,
+					},
+					await resolveFactoryIdentities(this.env),
+				);
 			},
 		);
 		const agentInput = { ...setup.agentInput, unresolvedReviewThreads };
@@ -278,12 +297,8 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 				timeout: '5 minutes',
 			},
 			async () => {
-				const client = await createInstallationClient(
-					credentials,
-					trigger.installationId,
-				);
 				return publishReview(
-					client,
+					await reviewerClient(),
 					{
 						owner: trigger.owner,
 						repo: trigger.repo,
@@ -308,12 +323,8 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 					timeout: '5 minutes',
 				},
 				async () => {
-					const client = await createInstallationClient(
-						credentials,
-						trigger.installationId,
-					);
 					return resolveAddressedReviewThreads(
-						client,
+						await reviewerClient(),
 						{
 							owner: trigger.owner,
 							repo: trigger.repo,
@@ -323,6 +334,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<
 						},
 						unresolvedReviewThreads,
 						result.addressedThreadIds,
+						await resolveFactoryIdentities(this.env),
 					);
 				},
 			);

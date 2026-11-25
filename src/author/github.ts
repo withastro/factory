@@ -7,6 +7,13 @@
 
 import type { InstallationClient } from '../github/client.ts';
 import { isGitHubStatus } from '../github/content.ts';
+import {
+	allIdentities,
+	type FactoryIdentities,
+	type FactoryIdentity,
+	isAuthoredBy,
+	reviewerIdentities,
+} from '../github/identity.ts';
 import { CHANGES_REQUESTED_VERDICT_MARKER } from '../review/verdict.ts';
 import type {
 	FailingCheck,
@@ -47,7 +54,6 @@ const PULL_REQUEST_QUERY = `
 					nodes {
 						author { login __typename }
 						authorAssociation
-						viewerDidAuthor
 						body
 						createdAt
 						url
@@ -57,7 +63,6 @@ const PULL_REQUEST_QUERY = `
 					nodes {
 						author { login __typename }
 						authorAssociation
-						viewerDidAuthor
 						state
 						body
 						submittedAt
@@ -75,8 +80,7 @@ const PULL_REQUEST_QUERY = `
 							nodes {
 								author { login __typename }
 								authorAssociation
-								viewerDidAuthor
-								url
+										url
 							}
 						}
 						recent: comments(last: 15) {
@@ -84,8 +88,7 @@ const PULL_REQUEST_QUERY = `
 							nodes {
 								author { login __typename }
 								authorAssociation
-								viewerDidAuthor
-								body
+										body
 								createdAt
 							}
 						}
@@ -99,7 +102,6 @@ const PULL_REQUEST_QUERY = `
 interface GraphqlAuthorFields {
 	author: { login: string; __typename: string } | null;
 	authorAssociation: string;
-	viewerDidAuthor: boolean;
 }
 
 interface PullRequestResponse {
@@ -166,7 +168,12 @@ interface PullRequestResponse {
 export async function loadPullRequestSnapshot(
 	client: InstallationClient,
 	input: { owner: string; repo: string; pullNumber: number },
+	identities: FactoryIdentities,
 ): Promise<PullRequestSnapshot> {
+	const factory = allIdentities(identities);
+	const reviewers = reviewerIdentities(identities);
+	const feedbackAuthor = (fields: GraphqlAuthorFields) =>
+		toFeedbackAuthor(fields, factory);
 	const response = await client.graphql<PullRequestResponse>(
 		PULL_REQUEST_QUERY,
 		input,
@@ -193,10 +200,11 @@ export async function loadPullRequestSnapshot(
 			kind: 'review',
 			author: feedbackAuthor(review),
 			state: review.state,
-			// Read before truncation: the verdict marker sits at the end.
+			// Read before truncation: the verdict marker sits at the end. It is
+			// only trusted from the reviewer persona.
 			requestsChanges:
 				review.state === 'CHANGES_REQUESTED' ||
-				(review.viewerDidAuthor &&
+				(isAuthoredBy(review.author, reviewers) &&
 					review.body.includes(CHANGES_REQUESTED_VERDICT_MARKER)),
 			body: truncate(review.body, MAX_BODY),
 			createdAt: review.submittedAt,
@@ -327,12 +335,15 @@ export async function resolveWriteAccess(
 	};
 }
 
-function feedbackAuthor(fields: GraphqlAuthorFields): FeedbackAuthor {
+function toFeedbackAuthor(
+	fields: GraphqlAuthorFields,
+	factory: readonly FactoryIdentity[],
+): FeedbackAuthor {
 	return {
 		// A deleted account comes back as a null author.
 		login: fields.author?.login ?? 'ghost',
 		association: fields.authorAssociation,
-		factory: fields.viewerDidAuthor,
+		factory: isAuthoredBy(fields.author, factory),
 		bot: fields.author?.__typename === 'Bot',
 	};
 }
@@ -436,18 +447,21 @@ export function tailLines(text: string, max: number): string {
 export interface StatusComment {
 	id: number;
 	body: string;
+	/** The App that wrote it. */
+	appId: number;
 }
 
 /**
  * The persona's status comment, identified by marker *and* by having been
- * written by this GitHub App. The marker alone is not enough: anyone can post
+ * written by one of `appIds`. The marker alone is not enough: anyone can post
  * a comment containing it, and the state it carries gates the round budget.
+ * When several Apps wrote one, the earliest App in `appIds` wins.
  */
 export async function findStatusComment(
 	client: InstallationClient,
 	input: { owner: string; repo: string; pullNumber: number },
 	marker: string,
-	appId: number,
+	appIds: readonly number[],
 ): Promise<StatusComment | null> {
 	const comments = await client.paginate(client.rest.issues.listComments, {
 		owner: input.owner,
@@ -455,12 +469,15 @@ export async function findStatusComment(
 		issue_number: input.pullNumber,
 		per_page: 100,
 	});
-	const found = comments.find(
-		(comment) =>
-			comment.performed_via_github_app?.id === appId &&
-			comment.body?.includes(marker),
-	);
-	return found ? { id: found.id, body: found.body ?? '' } : null;
+	for (const appId of appIds) {
+		const found = comments.find(
+			(comment) =>
+				comment.performed_via_github_app?.id === appId &&
+				comment.body?.includes(marker),
+		);
+		if (found) return { id: found.id, body: found.body ?? '', appId };
+	}
+	return null;
 }
 
 /**
@@ -477,7 +494,7 @@ export async function saveStatusComment(
 	appId: number,
 ): Promise<number> {
 	const id =
-		existingId ?? (await findStatusComment(client, input, marker, appId))?.id;
+		existingId ?? (await findStatusComment(client, input, marker, [appId]))?.id;
 	if (id !== undefined) {
 		try {
 			await client.rest.issues.updateComment({
@@ -498,6 +515,30 @@ export async function saveStatusComment(
 		body,
 	});
 	return created.data.id;
+}
+
+/**
+ * Delete a superseded status comment. Best effort: a comment someone already
+ * deleted is fine, and a stale one left behind is only cosmetic.
+ */
+export async function deleteStatusComment(
+	client: InstallationClient,
+	input: { owner: string; repo: string },
+	commentId: number,
+): Promise<void> {
+	try {
+		await client.rest.issues.deleteComment({
+			owner: input.owner,
+			repo: input.repo,
+			comment_id: commentId,
+		});
+	} catch (error) {
+		if (isGitHubStatus(error, 404)) return;
+		console.warn(
+			`Could not delete superseded status comment ${commentId}:`,
+			error instanceof Error ? error.message : String(error),
+		);
+	}
 }
 
 // ---------- Review threads ----------

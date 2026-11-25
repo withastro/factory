@@ -4,8 +4,8 @@
  * act on this round, and how that is presented to the agent.
  *
  * Trust is the core concern. Anything the agent reads can steer the code it
- * pushes, so only maintainers (OWNER, MEMBER, COLLABORATOR) and this Factory
- * installation's own reviewer count as feedback; everything else is withheld
+ * pushes, so only maintainers (OWNER, MEMBER, COLLABORATOR) and Factory's own
+ * Apps (including the reviewer persona) count as feedback; everything else is withheld
  * from the agent entirely rather than merely labelled untrusted.
  */
 
@@ -24,7 +24,7 @@ const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 export const MAX_FEEDBACK_COMMENTS = 20;
 
-/** A maintainer, or this Factory installation itself. */
+/** A maintainer, or one of Factory's own Apps. */
 export function isTrustedAuthor(author: FeedbackAuthor): boolean {
 	if (author.factory) return true;
 	if (author.bot) return false;
@@ -51,7 +51,7 @@ export interface AuthorWork {
 
 export interface ChangeRequester {
 	login: string;
-	/** This Factory installation, i.e. the reviewer persona. */
+	/** One of Factory's Apps, i.e. the reviewer persona. */
 	factory: boolean;
 }
 

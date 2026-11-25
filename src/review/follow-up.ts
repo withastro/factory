@@ -1,4 +1,10 @@
 import type { InstallationClient } from '../github/client.ts';
+import {
+	authorIdentities,
+	type FactoryIdentities,
+	isAuthoredBy,
+	reviewerIdentities,
+} from '../github/identity.ts';
 import { AUTHOR_DECLINED_MARKER } from '../personas/personas.ts';
 import {
 	MAX_REVIEW_THREAD_BODY_LENGTH,
@@ -24,7 +30,7 @@ const LATEST_REVIEWS_QUERY = `
 					nodes {
 						id
 						body
-						viewerDidAuthor
+						author { login __typename }
 						commit { oid }
 					}
 					pageInfo {
@@ -73,7 +79,7 @@ const REVIEW_THREADS_QUERY = `
 						latest: comments(last: 1) {
 							nodes {
 								body
-								viewerDidAuthor
+								author { login __typename }
 							}
 						}
 					}
@@ -104,7 +110,7 @@ const REVALIDATE_THREADS_QUERY = `
 						pullRequestReview {
 							id
 							body
-							viewerDidAuthor
+							author { login __typename }
 							commit { oid }
 						}
 					}
@@ -154,6 +160,11 @@ interface FactoryReview {
 	headSha: string;
 }
 
+interface GraphqlAuthor {
+	login: string;
+	__typename: string;
+}
+
 interface ReviewPageResponse {
 	repository: {
 		pullRequest: {
@@ -161,7 +172,7 @@ interface ReviewPageResponse {
 				nodes: Array<{
 					id: string;
 					body: string;
-					viewerDidAuthor: boolean;
+					author: GraphqlAuthor | null;
 					commit: { oid: string } | null;
 				} | null> | null;
 				pageInfo: { hasPreviousPage: boolean; startCursor: string | null };
@@ -212,7 +223,7 @@ interface ReviewThreadNode {
 		} | null> | null;
 	};
 	latest?: {
-		nodes: Array<{ body: string; viewerDidAuthor: boolean } | null> | null;
+		nodes: Array<{ body: string; author: GraphqlAuthor | null } | null> | null;
 	};
 }
 
@@ -231,7 +242,7 @@ interface RevalidateThreadsResponse {
 				pullRequestReview: {
 					id: string;
 					body: string;
-					viewerDidAuthor: boolean;
+					author: GraphqlAuthor | null;
 					commit: { oid: string } | null;
 				} | null;
 			} | null> | null;
@@ -246,7 +257,7 @@ interface ResolveThreadResponse {
 }
 
 /**
- * Unresolved inline threads opened by any of this installation's reviews.
+ * Unresolved inline threads opened by any of the reviewer persona's reviews.
  *
  * Every Factory review counts, not only the latest: a re-review doesn't
  * repeat findings that still stand, so a finding from an earlier round stays
@@ -255,8 +266,9 @@ interface ResolveThreadResponse {
 export async function loadUnresolvedFactoryReviewThreads(
 	client: InstallationClient,
 	input: ReviewFollowUpInput,
+	identities: FactoryIdentities,
 ): Promise<UnresolvedReviewThread[]> {
-	const reviews = await findFactoryReviews(client, input);
+	const reviews = await findFactoryReviews(client, input, identities);
 	if (reviews.size === 0) return [];
 
 	const threads: UnresolvedReviewThread[] = [];
@@ -282,10 +294,11 @@ export async function loadUnresolvedFactoryReviewThreads(
 			if (!comment || !review) continue;
 			const latest = thread.latest?.nodes?.[0];
 			// The author persona's declining reply is the thread's last word, and
-			// only a reply this installation wrote can carry the marker.
+			// only a reply the author persona wrote can carry the marker.
 			const disputed =
 				thread.comments.totalCount > 1 &&
-				latest?.viewerDidAuthor === true &&
+				!!latest &&
+				isAuthoredBy(latest.author, authorIdentities(identities)) &&
 				latest.body.includes(AUTHOR_DECLINED_MARKER);
 			threads.push({
 				threadId: thread.id,
@@ -337,6 +350,7 @@ export async function resolveAddressedReviewThreads(
 	input: ResolveReviewFollowUpInput,
 	threads: readonly UnresolvedReviewThread[],
 	addressedThreadIds: readonly string[],
+	identities: FactoryIdentities,
 ): Promise<ResolveReviewFollowUpOutcome> {
 	if (addressedThreadIds.length === 0) {
 		return { resolved: 0, alreadyResolved: 0, skipped: 0, stale: false };
@@ -402,7 +416,7 @@ export async function resolveAddressedReviewThreads(
 			current.comments?.totalCount !== expected.commentCount ||
 			!review ||
 			review.id !== expected.reviewId ||
-			!review.viewerDidAuthor ||
+			!isAuthoredBy(review.author, reviewerIdentities(identities)) ||
 			!marker ||
 			marker.headSha !== expected.reviewHeadSha ||
 			(review.commit !== null &&
@@ -459,11 +473,13 @@ function isForbiddenGraphqlResponse(error: unknown): boolean {
 	);
 }
 
-/** This installation's reviews on the pull request, by id, with their head. */
+/** The reviewer persona's reviews on the pull request, by id, with their head. */
 async function findFactoryReviews(
 	client: InstallationClient,
 	input: ReviewFollowUpInput,
+	identities: FactoryIdentities,
 ): Promise<Map<string, FactoryReview>> {
+	const reviewers = reviewerIdentities(identities);
 	const found = new Map<string, FactoryReview>();
 	let before: string | null = null;
 	while (true) {
@@ -477,7 +493,7 @@ async function findFactoryReviews(
 		if (!connection)
 			throw new Error('The pull request was not found while loading reviews.');
 		for (const review of connection.nodes ?? []) {
-			if (!review?.viewerDidAuthor) continue;
+			if (!review || !isAuthoredBy(review.author, reviewers)) continue;
 			const marker = parseReviewMarker(review.body);
 			if (!marker) continue;
 			if (review.commit && review.commit.oid.toLowerCase() !== marker.headSha)
